@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rialú</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-height:100vh}
+[data-theme="dark"]{--bg:#111318;--bg2:#181c24;--bg3:#1e2330;--text:#e4ecf5;--t2:#8fa4bc;--t3:#546880;--bd:rgba(255,255,255,0.08);--bd2:rgba(255,255,255,0.16);--acc:#5baee8;--acc2:rgba(91,174,232,0.12);--acc3:#8ecef8;--ok:#50c896;--ok2:rgba(80,200,150,0.12);--warn:#f0b840;--warn2:rgba(240,184,64,0.12);--err:#f07070;--err2:rgba(240,112,112,0.12);--pur:#9984e8;--pur2:rgba(153,132,232,0.12);--pur3:#bcb0f5;--hdr:#0d1018}
+[data-theme="light"]{--bg:#fff;--bg2:#f5f4f0;--bg3:#eeede8;--text:#1a1a18;--t2:#5f5e5a;--t3:#888780;--bd:rgba(0,0,0,0.1);--bd2:rgba(0,0,0,0.2);--acc:#185FA5;--acc2:#E6F1FB;--acc3:#0C447C;--ok:#3B6D11;--ok2:#EAF3DE;--warn:#854F0B;--warn2:#FAEEDA;--err:#A32D2D;--err2:#FCEBEB;--pur:#534AB7;--pur2:#EEEDFE;--pur3:#3C3489;--hdr:#fafaf8}
+[data-theme="slate"]{--bg:#0e1520;--bg2:#162030;--bg3:#1d2d42;--text:#ccd8e8;--t2:#7a9ab8;--t3:#4d6880;--bd:rgba(80,140,210,0.14);--bd2:rgba(80,140,210,0.28);--acc:#5baee8;--acc2:#142236;--acc3:#8ecef8;--ok:#50c896;--ok2:#082018;--warn:#f0b840;--warn2:#201a06;--err:#f07070;--err2:#200c0c;--pur:#8878e8;--pur2:#1a1630;--pur3:#aaa0f8;--hdr:#0a1018}
+[data-theme="terminal"]{--bg:#090c09;--bg2:#0e120e;--bg3:#131813;--text:#22dd44;--t2:#178830;--t3:#0f5520;--bd:rgba(34,200,68,0.18);--bd2:rgba(34,200,68,0.35);--acc:#22dd44;--acc2:#061206;--acc3:#66ee88;--ok:#22dd44;--ok2:#061206;--warn:#ccdd22;--warn2:#181600;--err:#dd3333;--err2:#180808;--pur:#88dd22;--pur2:#111a06;--pur3:#aaf044;--hdr:#060906}
+[data-theme="terminal"] *{font-family:monospace!important}
+#app{background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;min-height:100vh}
+.hdr{background:var(--hdr);border-bottom:0.5px solid var(--bd);padding:9px 14px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.brand{font-size:14px;font-weight:600;color:var(--acc);letter-spacing:0.04em}
+.hdr-r{display:flex;align-items:center;gap:10px}
+.theme-row{display:flex;align-items:center;gap:6px}
+.tlabel{font-size:11px;color:var(--t3)}
+.tdot{width:14px;height:14px;border-radius:50%;cursor:pointer;border:2px solid transparent;flex-shrink:0}
+.tdot.on{border-color:var(--t2)}
+.tdot[data-t=dark]{background:#181c24;outline:0.5px solid #334}
+.tdot[data-t=light]{background:#f0eeea;outline:0.5px solid #ccc}
+.tdot[data-t=slate]{background:#162030;outline:0.5px solid #335}
+.tdot[data-t=terminal]{background:#0e120e;outline:0.5px solid #1a441a}
+.nav{display:flex;background:var(--hdr);border-bottom:0.5px solid var(--bd);padding:0 14px;overflow-x:auto}
+.ntab{padding:9px 14px;font-size:12px;color:var(--t2);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;user-select:none}
+.ntab:hover{color:var(--text)}
+.ntab.on{color:var(--acc);border-bottom-color:var(--acc)}
+.panel{padding:14px 16px;display:none}
+.panel.on{display:block}
+.pill{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:500;padding:2px 8px;border-radius:12px;white-space:nowrap}
+.ok{background:var(--ok2);color:var(--ok)}.warn{background:var(--warn2);color:var(--warn)}.err{background:var(--err2);color:var(--err)}.info{background:var(--acc2);color:var(--acc3)}.gray{background:var(--bg3);color:var(--t2)}.pur{background:var(--pur2);color:var(--pur)}
+.dot{width:5px;height:5px;border-radius:50%;background:currentColor;display:inline-block}
+.slabel{font-size:10px;font-weight:500;color:var(--t3);text-transform:uppercase;letter-spacing:.07em}
+.row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px;flex-wrap:wrap}
+.vtog{display:flex;border:0.5px solid var(--bd2);border-radius:5px;overflow:hidden}
+.vbtn{padding:5px 12px;font-size:11px;color:var(--t2);cursor:pointer;background:transparent;border:none;border-right:0.5px solid var(--bd2);font-family:inherit;user-select:none}
+.vbtn:last-child{border-right:none}
+.vbtn.on{background:var(--acc2);color:var(--acc3)}
+.btn{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--t2);border:0.5px solid var(--bd2);border-radius:5px;padding:4px 10px;cursor:pointer;background:transparent;font-family:inherit}
+.btn:hover{background:var(--bg2)}
+.btn-acc{background:var(--acc2);color:var(--acc3);border-color:var(--acc)}
+.btn-ok{background:var(--ok2);color:var(--ok);border-color:var(--ok)}
+.btn-warn{background:var(--warn2);color:var(--warn);border-color:var(--warn)}
+.mono{font-family:monospace;font-size:10px}
+.prow{background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;margin-bottom:6px;overflow:hidden}
+.prow.open{border-color:var(--acc)}
+.prow-summary{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;user-select:none}
+.pmarker{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.pname{font-size:13px;font-weight:500;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pmeta{font-size:11px;color:var(--t3);flex-shrink:0}
+.pchev{font-size:13px;color:var(--t3);flex-shrink:0;transition:transform .15s;display:inline-block;line-height:1}
+.prow.open .pchev{transform:rotate(90deg)}
+.pdetail{border-top:0.5px solid var(--bd);padding:12px 14px;display:none}
+.prow.open .pdetail{display:block}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.dlabel{font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;font-weight:500}
+.dval{font-size:12px;color:var(--text);line-height:1.5}
+.dval a{color:var(--acc);font-family:monospace;font-size:11px}
+.milestones{margin-bottom:12px}
+.ms-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--bd);font-size:12px;cursor:pointer}
+.ms-row:last-child{border-bottom:none}
+.ms-check{width:15px;height:15px;border-radius:3px;border:0.5px solid var(--bd2);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;background:var(--bg3)}
+.ms-check.done{background:var(--ok2);border-color:var(--ok);color:var(--ok)}
+.ms-title{flex:1;color:var(--text)}
+.ms-title.done{text-decoration:line-through;color:var(--t3)}
+.ms-due{font-size:10px;color:var(--t3);flex-shrink:0}
+.note-box{background:var(--bg3);border-radius:5px;padding:10px 12px;font-size:12px;color:var(--t2);line-height:1.6;margin-bottom:12px;white-space:pre-wrap}
+.detail-actions{display:flex;gap:6px;flex-wrap:wrap}
+.form-block{background:var(--acc2);border:0.5px solid var(--acc);border-radius:8px;padding:14px;margin-bottom:10px}
+.form-block.green{background:var(--ok2);border-color:var(--ok)}
+.form-row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.form-field{display:flex;flex-direction:column;gap:3px;flex:1;min-width:120px}
+.form-field label{font-size:10px;color:var(--acc3);font-weight:500;text-transform:uppercase;letter-spacing:.05em}
+.form-block.green .form-field label{color:var(--ok)}
+.form-field input,.form-field select,.form-field textarea{background:var(--bg);border:0.5px solid var(--bd2);border-radius:5px;padding:6px 9px;font-size:12px;color:var(--text);font-family:inherit;outline:none}
+.form-field input:focus,.form-field select:focus,.form-field textarea:focus{border-color:var(--acc)}
+.form-block.green .form-field input:focus{border-color:var(--ok)}
+.form-field textarea{resize:vertical;min-height:60px}
+.form-field select option{background:var(--bg);color:var(--text)}
+.kboard{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.kcol{background:var(--bg2);border-radius:7px;padding:9px}
+.kcolhdr{font-size:9px;font-weight:500;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px}
+.kcard{background:var(--bg);border:0.5px solid var(--bd);border-radius:5px;padding:8px 9px;margin-bottom:5px}
+.kcard-name{font-size:11px;font-weight:500;color:var(--text)}
+.kcard-meta{font-size:10px;color:var(--t3);margin-top:2px}
+.tbar-hdr{display:flex;align-items:center;margin-bottom:9px;border-bottom:0.5px solid var(--bd);padding-bottom:7px}
+.tbar-label-col{width:140px;font-size:10px;color:var(--t3);flex-shrink:0}
+.tbar-months{display:grid;grid-template-columns:repeat(6,1fr);flex:1;font-size:10px;color:var(--t3);text-align:center}
+.tbar-row{display:flex;align-items:center;margin-bottom:7px}
+.tbar-label{width:140px;font-size:12px;color:var(--text);flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:8px}
+.tbar-track{flex:1;position:relative;height:24px}
+.tbar{position:absolute;top:2px;height:20px;border-radius:4px;display:flex;align-items:center;padding:0 8px;font-size:10px;overflow:hidden;white-space:nowrap}
+.mcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-bottom:14px}
+.mcard{background:var(--bg2);border-radius:7px;padding:11px}
+.mclabel{font-size:10px;color:var(--t3);margin-bottom:3px}
+.mcval{font-size:20px;font-weight:500;color:var(--text);line-height:1.2}
+.mcsub{font-size:10px;color:var(--t2);margin-top:2px}
+.wltbl{width:100%;border-collapse:collapse;table-layout:fixed}
+.wltbl th{font-size:9px;font-weight:500;color:var(--t3);text-align:left;padding:5px 8px;border-bottom:0.5px solid var(--bd);text-transform:uppercase;letter-spacing:.05em}
+.wltbl td{padding:7px 8px;border-bottom:0.5px solid var(--bd);font-size:11px;vertical-align:middle}
+.wltbl tr:last-child td{border-bottom:none}
+.wltbl tr:hover td{background:var(--bg3)}
+.dcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-bottom:14px}
+.dcard{background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;padding:11px}
+.dname{font-size:12px;font-weight:500;color:var(--text)}
+.dmeta{font-size:10px;color:var(--t3);margin-top:2px}
+.durl{font-size:10px;color:var(--acc);font-family:monospace;margin-top:4px}
+.plat{font-size:9px;padding:1px 4px;border-radius:2px;border:0.5px solid var(--bd2);color:var(--t3)}
+.tbl{width:100%;border-collapse:collapse;table-layout:fixed}
+.tbl th{font-size:9px;font-weight:500;color:var(--t3);text-align:left;padding:5px 7px;border-bottom:0.5px solid var(--bd);text-transform:uppercase;letter-spacing:.05em}
+.tbl td{padding:6px 7px;border-bottom:0.5px solid var(--bd);font-size:11px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:var(--bg3)}
+.hint{font-size:11px;color:var(--t3);margin-top:9px}
+.loading{color:var(--t3);font-size:12px;padding:20px 0;text-align:center}
+.empty{color:var(--t3);font-size:12px;padding:20px 0;text-align:center}
+@media(max-width:600px){.detail-grid{grid-template-columns:1fr}.kboard{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div id="app" data-theme="dark">
+
+<div class="hdr">
+  <span class="brand">rialú</span>
+  <div class="hdr-r">
+    <div class="theme-row">
+      <span class="tlabel">theme</span>
+      <div class="tdot" data-t="dark" onclick="setTheme('dark')"></div>
+      <div class="tdot" data-t="light" onclick="setTheme('light')"></div>
+      <div class="tdot" data-t="slate" onclick="setTheme('slate')"></div>
+      <div class="tdot" data-t="terminal" onclick="setTheme('terminal')"></div>
+    </div>
+  </div>
+</div>
+
+<div class="nav">
+  <div class="ntab on" data-p="projects">Projects</div>
+  <div class="ntab" data-p="worklog">Work log</div>
+  <div class="ntab" data-p="machines">Machines</div>
+  <div class="ntab" data-p="deployments">Deployments</div>
+  <div class="ntab" data-p="budget">Budget &amp; APIs</div>
+</div>
+
+<!-- PROJECTS -->
+<div id="projects" class="panel on">
+  <div class="row">
+    <div style="display:flex;align-items:center;gap:9px">
+      <div class="vtog">
+        <div class="vbtn on" id="v-list">List</div>
+        <div class="vbtn" id="v-kanban">Kanban</div>
+        <div class="vbtn" id="v-timeline">Timeline</div>
+      </div>
+      <span class="slabel" id="project-count">loading...</span>
+    </div>
+    <button class="btn btn-acc" onclick="toggleAddForm()">+ New project</button>
+  </div>
+
+  <div class="form-block" id="add-form" style="display:none">
+    <div class="dlabel" style="margin-bottom:9px;color:var(--acc3);font-size:11px">New project</div>
+    <div class="form-row">
+      <div class="form-field" style="flex:2"><label>Name</label><input type="text" id="pf-name" placeholder="e.g. Radharc v2"></div>
+      <div class="form-field"><label>Status</label>
+        <select id="pf-status">
+          <option>research</option><option>development</option><option>running</option>
+          <option>deployed</option><option>paused</option><option>shipped</option>
+        </select>
+      </div>
+      <div class="form-field"><label>Machine / platform</label>
+        <select id="pf-machine">
+          <option value="">—</option><option>rose</option><option>iris</option>
+          <option>daisy</option><option>lava</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-field" style="flex:2"><label>Repo URL</label><input type="text" id="pf-repo" placeholder="https://github.com/todd427/..."></div>
+      <div class="form-field"><label>Current phase</label><input type="text" id="pf-phase" placeholder="e.g. peekaboo"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Notes</label><textarea id="pf-notes" placeholder="Free-form context..."></textarea></div>
+    </div>
+    <div style="display:flex;gap:7px">
+      <button class="btn btn-acc" onclick="submitAddProject()">Save project</button>
+      <button class="btn" onclick="toggleAddForm()">Cancel</button>
+    </div>
+  </div>
+
+  <div id="pv-list"><div class="loading">Loading projects…</div></div>
+
+  <div id="pv-kanban" style="display:none">
+    <div class="kboard" id="kanban-board"></div>
+  </div>
+
+  <div id="pv-timeline" style="display:none">
+    <div class="tbar-hdr">
+      <div class="tbar-label-col">Project</div>
+      <div class="tbar-months"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div>
+    </div>
+    <div id="timeline-rows"></div>
+  </div>
+</div>
+
+<!-- WORKLOG -->
+<div id="worklog" class="panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <span class="slabel">Sessions</span>
+    <button class="btn btn-acc" onclick="toggleLogForm()">+ Log session</button>
+  </div>
+  <div class="form-block green" id="log-form" style="display:none">
+    <div class="slabel" style="margin-bottom:9px;color:var(--ok)">Log session</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-bottom:9px">
+      <div style="display:flex;flex-direction:column;gap:3px"><label class="dlabel" style="color:var(--ok)">Project</label>
+        <select id="wl-project" class="form-field"></select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px"><label class="dlabel" style="color:var(--ok)">Type</label>
+        <select id="wl-type">
+          <option>code</option><option>debug</option><option>deploy</option>
+          <option>research</option><option>writing</option><option>design</option><option>meeting</option>
+        </select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px"><label class="dlabel" style="color:var(--ok)">Duration (min)</label>
+        <input type="number" id="wl-minutes" placeholder="90" min="1" max="720" style="background:var(--bg);border:0.5px solid var(--bd2);border-radius:5px;padding:6px 9px;font-size:12px;color:var(--text);font-family:inherit;outline:none;width:100%">
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:9px">
+      <label class="dlabel" style="color:var(--ok)">Notes</label>
+      <input type="text" id="wl-notes" placeholder="What did you work on?" style="background:var(--bg);border:0.5px solid var(--bd2);border-radius:5px;padding:6px 9px;font-size:12px;color:var(--text);font-family:inherit;outline:none;width:100%">
+    </div>
+    <div style="display:flex;gap:7px">
+      <button class="btn btn-ok" onclick="submitLogEntry()">Save</button>
+      <button class="btn" onclick="toggleLogForm()">Cancel</button>
+    </div>
+  </div>
+  <div class="mcards" id="wl-stats">
+    <div class="mcard"><div class="mclabel">This week</div><div class="mcval" id="s-week">—</div><div class="mcsub">minutes logged</div></div>
+    <div class="mcard"><div class="mclabel">Sessions</div><div class="mcval" id="s-sessions">—</div><div class="mcsub">last 7 days</div></div>
+    <div class="mcard"><div class="mclabel">Top project</div><div class="mcval" id="s-top" style="font-size:14px">—</div><div class="mcsub" id="s-top-min"></div></div>
+    <div class="mcard"><div class="mclabel">Streak</div><div class="mcval" id="s-streak">—</div><div class="mcsub">days</div></div>
+  </div>
+  <div style="background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;overflow:hidden">
+    <table class="wltbl">
+      <thead><tr><th style="width:70px">Date</th><th style="width:90px">Project</th><th style="width:60px">Type</th><th style="width:40px">Min</th><th>Notes</th><th style="width:30px"></th></tr></thead>
+      <tbody id="wl-tbody"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- MACHINES -->
+<div id="machines" class="panel">
+  <div class="row"><span class="slabel">Machine agents</span></div>
+  <div style="background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;padding:20px;text-align:center">
+    <div style="font-size:12px;color:var(--t3);margin-bottom:8px">rialu-agent not yet deployed</div>
+    <div style="font-size:11px;color:var(--t3)">Phase 2 — install rialu-agent on Rose, Iris, and Daisy to enable machine monitoring and remote actions.</div>
+  </div>
+</div>
+
+<!-- DEPLOYMENTS -->
+<div id="deployments" class="panel">
+  <div class="row"><span class="slabel" id="dep-count">Cloud services</span><button class="btn" onclick="refreshDeploys()">↻ Refresh</button></div>
+  <div class="dcards" id="dep-cards"><div class="loading">Loading…</div></div>
+  <div class="slabel" style="margin-bottom:8px">Recent deploys</div>
+  <table class="tbl">
+    <thead><tr><th style="width:75px">When</th><th style="width:120px">Service</th><th style="width:75px">Result</th><th>Commit</th></tr></thead>
+    <tbody id="dep-history"><tr><td colspan="4" class="loading">Loading…</td></tr></tbody>
+  </table>
+</div>
+
+<!-- BUDGET & APIs -->
+<div id="budget" class="panel">
+  <div class="mcards">
+    <div class="mcard"><div class="mclabel">Fly.io / month</div><div class="mcval" id="b-fly">—</div></div>
+    <div class="mcard"><div class="mclabel">Railway / month</div><div class="mcval" id="b-rail">—</div></div>
+    <div class="mcard"><div class="mclabel">Cloudflare</div><div class="mcval" id="b-cf">—</div></div>
+    <div class="mcard"><div class="mclabel">Anthropic 30d</div><div class="mcval" id="b-api">—</div></div>
+    <div class="mcard"><div class="mclabel" style="font-weight:500">Total all-in</div><div class="mcval" style="color:var(--acc)" id="b-total">—</div></div>
+  </div>
+  <div class="slabel" style="margin-bottom:8px">API registry</div>
+  <table class="tbl">
+    <thead><tr><th style="width:120px">API</th><th style="width:90px">Provider</th><th style="width:90px">Billing</th><th style="width:70px">Est./mo</th><th style="width:70px">Poll</th><th>Status</th></tr></thead>
+    <tbody id="api-tbody"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
+  </table>
+  <div class="hint">API cost attribution by project: pending Anthropic usage API integration.</div>
+</div>
+
+</div><!-- /app -->
+
+<script>
+// ── theme ──────────────────────────────────────────────────────────────────
+(function(){
+  const t = localStorage.getItem('rialu-theme') || 'dark';
+  document.getElementById('app').setAttribute('data-theme', t);
+  document.querySelectorAll('.tdot').forEach(d => d.classList.toggle('on', d.dataset.t === t));
+})();
+function setTheme(t){
+  document.getElementById('app').setAttribute('data-theme', t);
+  document.querySelectorAll('.tdot').forEach(d => d.classList.toggle('on', d.dataset.t === t));
+  localStorage.setItem('rialu-theme', t);
+}
+
+// ── nav ────────────────────────────────────────────────────────────────────
+const TAB_LOADERS = {
+  projects: loadProjects,
+  worklog: loadWorklog,
+  deployments: loadDeployments,
+  budget: loadBudget,
+  machines: () => {},
+};
+let loadedTabs = new Set();
+
+document.querySelectorAll('.ntab').forEach(tab => {
+  tab.addEventListener('click', function(){
+    document.querySelectorAll('.ntab').forEach(t => t.classList.remove('on'));
+    this.classList.add('on');
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
+    const id = this.dataset.p;
+    document.getElementById(id).classList.add('on');
+    if (!loadedTabs.has(id)) {
+      loadedTabs.add(id);
+      TAB_LOADERS[id]?.();
+    }
+  });
+});
+
+// ── project views ──────────────────────────────────────────────────────────
+let allProjects = [];
+['list','kanban','timeline'].forEach(v => {
+  document.getElementById('v-'+v).addEventListener('click', function(){
+    ['list','kanban','timeline'].forEach(vv => {
+      document.getElementById('v-'+vv).classList.remove('on');
+      document.getElementById('pv-'+vv).style.display = 'none';
+    });
+    this.classList.add('on');
+    document.getElementById('pv-'+v).style.display = 'block';
+    if (v === 'kanban') renderKanban(allProjects);
+    if (v === 'timeline') renderTimeline(allProjects);
+  });
+});
+
+// ── status helpers ─────────────────────────────────────────────────────────
+const STATUS_COLOR = {
+  research: 'var(--acc)', development: 'var(--acc)', running: 'var(--pur)',
+  deployed: 'var(--ok)', paused: 'var(--t3)', shipped: 'var(--ok)',
+};
+const STATUS_PILL = {
+  research: 'info', development: 'info', running: 'pur',
+  deployed: 'ok', paused: 'gray', shipped: 'ok',
+};
+function statusPill(s){ return `<span class="pill ${STATUS_PILL[s]||'gray'}">${s||'unknown'}</span>`; }
+
+function timeSince(iso){
+  if (!iso) return '';
+  const d = new Date(iso.replace(' ','T')+'Z');
+  const s = (Date.now() - d.getTime()) / 1000;
+  if (s < 120) return 'just now';
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  if (s < 86400) return Math.floor(s/3600) + 'h ago';
+  return Math.floor(s/86400) + 'd ago';
+}
+
+// ── projects ───────────────────────────────────────────────────────────────
+async function loadProjects(){
+  try {
+    const projects = await fetch('/api/projects').then(r => r.json());
+    allProjects = projects;
+    document.getElementById('project-count').textContent = projects.length + ' projects';
+    renderProjectList(projects);
+    populateProjectDropdown(projects);
+  } catch(e){
+    document.getElementById('pv-list').innerHTML = '<div class="empty">Could not load projects.</div>';
+  }
+}
+
+function renderProjectList(projects){
+  const el = document.getElementById('pv-list');
+  if (!projects.length){ el.innerHTML = '<div class="empty">No projects yet. Add one above.</div>'; return; }
+  el.innerHTML = projects.map(p => `
+    <div class="prow" id="pr-${p.id}">
+      <div class="prow-summary" onclick="toggleProject(${p.id})">
+        <div class="pmarker" style="background:${STATUS_COLOR[p.status]||'var(--t3)'}"></div>
+        <span class="pname">${esc(p.name)}</span>
+        ${statusPill(p.status)}
+        ${p.machine ? `<span class="pmeta">${esc(p.machine)}</span>` : ''}
+        ${p.phase ? `<span class="pmeta">${esc(p.phase)}</span>` : ''}
+        <span class="pmeta" style="margin-left:auto">${timeSince(p.updated_at)}</span>
+        <span class="pchev">›</span>
+      </div>
+      <div class="pdetail" id="pd-${p.id}">
+        <div class="loading">Loading…</div>
+      </div>
+    </div>`).join('');
+}
+
+async function toggleProject(id){
+  const row = document.getElementById('pr-'+id);
+  const detail = document.getElementById('pd-'+id);
+  const isOpen = row.classList.contains('open');
+  row.classList.toggle('open', !isOpen);
+  if (!isOpen && detail.querySelector('.loading')){
+    await loadProjectDetail(id);
+  }
+}
+
+async function loadProjectDetail(id){
+  const detail = document.getElementById('pd-'+id);
+  const p = allProjects.find(x => x.id === id);
+  if (!p) return;
+  const milestones = await fetch(`/api/projects/${id}/milestones`).then(r => r.json());
+  detail.innerHTML = `
+    <div class="detail-grid">
+      <div>
+        <div class="dlabel">Description</div>
+        <div class="dval">${esc(p.notes || '—')}</div>
+      </div>
+      <div>
+        <div class="dlabel">Location</div>
+        <div class="dval">${esc([p.machine, p.platform].filter(Boolean).join(' · ') || '—')}</div>
+        ${p.repo_url ? `<div style="margin-top:8px"><div class="dlabel">Repo</div><div class="dval"><a href="${esc(p.repo_url)}" target="_blank">${esc(p.repo_url.replace('https://',''))}</a></div></div>` : ''}
+      </div>
+    </div>
+    <div class="dlabel" style="margin-bottom:6px">Milestones</div>
+    <div class="milestones" id="ms-${id}">
+      ${milestones.length
+        ? milestones.map(m => `
+          <div class="ms-row" onclick="toggleMilestone(${m.id}, ${id})">
+            <div class="ms-check ${m.done ? 'done' : ''}">${m.done ? '✓' : '·'}</div>
+            <span class="ms-title ${m.done ? 'done' : ''}">${esc(m.title)}</span>
+            <span class="ms-due">${m.due_date ? esc(m.due_date) : m.done ? 'done' : ''}</span>
+          </div>`).join('')
+        : '<div class="empty" style="padding:8px 0">No milestones yet.</div>'}
+    </div>
+    <div class="detail-actions">
+      <button class="btn" onclick="openLogForProject(${id}, '${esc(p.name)}')">Log session</button>
+      <button class="btn" onclick="addMilestonePrompt(${id})">Add milestone</button>
+    </div>`;
+}
+
+async function toggleMilestone(mid, pid){
+  const row = document.querySelector(`#ms-${pid} .ms-row [onclick*="${mid}"]`)?.closest('.ms-row');
+  const check = row?.querySelector('.ms-check');
+  const isDone = check?.classList.contains('done');
+  await fetch(`/api/projects/milestones/${mid}`, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({done: !isDone}),
+  });
+  await loadProjectDetail(pid);
+}
+
+async function addMilestonePrompt(pid){
+  const title = prompt('Milestone title:');
+  if (!title?.trim()) return;
+  await fetch(`/api/projects/${pid}/milestones`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({title: title.trim()}),
+  });
+  await loadProjectDetail(pid);
+}
+
+function toggleAddForm(){
+  const f = document.getElementById('add-form');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+}
+
+async function submitAddProject(){
+  const name = document.getElementById('pf-name').value.trim();
+  if (!name){ alert('Name required'); return; }
+  const body = {
+    name,
+    status: document.getElementById('pf-status').value,
+    machine: document.getElementById('pf-machine').value || null,
+    repo_url: document.getElementById('pf-repo').value || null,
+    phase: document.getElementById('pf-phase').value || null,
+    notes: document.getElementById('pf-notes').value || null,
+  };
+  await fetch('/api/projects', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  });
+  toggleAddForm();
+  ['pf-name','pf-repo','pf-phase','pf-notes'].forEach(id => document.getElementById(id).value = '');
+  loadedTabs.delete('projects');
+  await loadProjects();
+}
+
+function renderKanban(projects){
+  const cols = { research: [], development: [], running: [], deployed: [] };
+  const other = [];
+  projects.forEach(p => {
+    if (p.status in cols) cols[p.status].push(p);
+    else if (['paused','shipped'].includes(p.status)) cols.deployed.push(p);
+    else other.push(p);
+  });
+  const labels = { research:'Research', development:'Development', running:'Running', deployed:'Deployed' };
+  document.getElementById('kanban-board').innerHTML = Object.entries(cols).map(([k, ps]) => `
+    <div class="kcol">
+      <div class="kcolhdr">${labels[k]} <span style="font-weight:400;color:var(--t3)">${ps.length}</span></div>
+      ${ps.map(p => `<div class="kcard"><div class="kcard-name">${esc(p.name)}</div><div class="kcard-meta">${esc([p.machine,p.platform,p.phase].filter(Boolean).join(' · '))}</div></div>`).join('')}
+    </div>`).join('');
+}
+
+function renderTimeline(projects){
+  // Simple gantt: distribute projects across Jan-Jun based on status + updated_at
+  const statusBars = {
+    research:'var(--bg3)', development:'var(--acc2)', running:'var(--pur2)',
+    deployed:'var(--ok2)', paused:'var(--bg3)', shipped:'var(--ok2)'
+  };
+  const statusBorders = {
+    research:'var(--bd2)', development:'var(--acc)', running:'var(--pur)',
+    deployed:'var(--ok)', paused:'var(--bd2)', shipped:'var(--ok)'
+  };
+  const statusText = {
+    research:'var(--t3)', development:'var(--acc3)', running:'var(--pur3)',
+    deployed:'var(--ok)', paused:'var(--t3)', shipped:'var(--ok)'
+  };
+  document.getElementById('timeline-rows').innerHTML = projects.map((p, i) => {
+    const left = Math.round((i % 3) * 16) + '%';
+    const width = (p.status === 'deployed' || p.status === 'running') ? '100%' : (70 - (i%4)*10) + '%';
+    return `<div class="tbar-row">
+      <div class="tbar-label">${esc(p.name)}</div>
+      <div class="tbar-track">
+        <div class="tbar" style="left:${left};width:${width};background:${statusBars[p.status]};border:0.5px solid ${statusBorders[p.status]};color:${statusText[p.status]}">${esc(p.phase || p.status)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── worklog ────────────────────────────────────────────────────────────────
+async function loadWorklog(){
+  const [stats, entries] = await Promise.all([
+    fetch('/api/worklog/stats').then(r => r.json()),
+    fetch('/api/worklog?limit=50').then(r => r.json()),
+  ]);
+  document.getElementById('s-week').textContent = stats.minutes_this_week ?? '—';
+  document.getElementById('s-sessions').textContent = stats.sessions_7d ?? '—';
+  document.getElementById('s-top').textContent = stats.top_project?.name ?? '—';
+  document.getElementById('s-top-min').textContent = stats.top_project ? stats.top_project.total + ' min' : '';
+  document.getElementById('s-streak').textContent = stats.streak_days ?? '—';
+  renderWorklogTable(entries);
+}
+
+function renderWorklogTable(entries){
+  const tbody = document.getElementById('wl-tbody');
+  if (!entries.length){ tbody.innerHTML = '<tr><td colspan="6" class="empty">No sessions logged yet.</td></tr>'; return; }
+  tbody.innerHTML = entries.map(e => `
+    <tr>
+      <td class="mono">${esc(e.date)}</td>
+      <td><span class="pill info" style="font-size:9px">${esc(e.project_name||'?')}</span></td>
+      <td style="color:var(--t3);font-size:10px">${esc(e.session_type)}</td>
+      <td class="mono">${e.minutes}</td>
+      <td style="font-size:11px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.notes||'')}</td>
+      <td><span style="cursor:pointer;color:var(--t3);font-size:11px" onclick="deleteWlEntry(${e.id})">✕</span></td>
+    </tr>`).join('');
+}
+
+async function deleteWlEntry(id){
+  if (!confirm('Delete this entry?')) return;
+  await fetch(`/api/worklog/${id}`, {method:'DELETE'});
+  loadWorklog();
+}
+
+function populateProjectDropdown(projects){
+  const sel = document.getElementById('wl-project');
+  sel.innerHTML = projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+}
+
+function toggleLogForm(){ const f = document.getElementById('log-form'); f.style.display = f.style.display==='none'?'block':'none'; }
+
+function openLogForProject(pid, name){
+  document.querySelectorAll('.ntab').forEach(t => t.classList.remove('on'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
+  document.querySelector('.ntab[data-p=worklog]').classList.add('on');
+  document.getElementById('worklog').classList.add('on');
+  if (!loadedTabs.has('worklog')){ loadedTabs.add('worklog'); loadWorklog(); }
+  toggleLogForm();
+  const sel = document.getElementById('wl-project');
+  const opt = [...sel.options].find(o => o.value == pid);
+  if (opt) sel.value = pid;
+}
+
+async function submitLogEntry(){
+  const pid = document.getElementById('wl-project').value;
+  const mins = parseInt(document.getElementById('wl-minutes').value);
+  if (!pid || !mins || isNaN(mins)){ alert('Project and duration required'); return; }
+  await fetch('/api/worklog', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      project_id: parseInt(pid),
+      minutes: mins,
+      session_type: document.getElementById('wl-type').value,
+      notes: document.getElementById('wl-notes').value || null,
+    }),
+  });
+  toggleLogForm();
+  document.getElementById('wl-minutes').value = '';
+  document.getElementById('wl-notes').value = '';
+  loadWorklog();
+}
+
+// ── deployments ────────────────────────────────────────────────────────────
+async function loadDeployments(){
+  const [svcs, history] = await Promise.all([
+    fetch('/api/deployments').then(r => r.json()),
+    fetch('/api/deployments/history').then(r => r.json()),
+  ]);
+  document.getElementById('dep-count').textContent = svcs.length + ' services monitored';
+  renderDepCards(svcs);
+  renderDepHistory(history);
+}
+
+function renderDepCards(svcs){
+  const el = document.getElementById('dep-cards');
+  if (!svcs.length){ el.innerHTML = '<div class="empty">No services cached yet. Click Refresh to poll.</div>'; return; }
+  const pill = s => {
+    if (s === 'healthy') return '<span class="pill ok"><span class="dot"></span>healthy</span>';
+    if (s === 'error') return '<span class="pill err"><span class="dot"></span>error</span>';
+    if (s === 'deploying') return '<span class="pill warn"><span class="dot"></span>deploying</span>';
+    return `<span class="pill gray">${s||'unknown'}</span>`;
+  };
+  el.innerHTML = svcs.map(s => `
+    <div class="dcard">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
+        <div>
+          <div class="dname">${esc(s.service_name)}</div>
+          <div class="dmeta"><span class="plat">${esc(s.platform)}</span> · ${timeSince(s.checked_at)}</div>
+        </div>
+        ${pill(s.status)}
+      </div>
+      ${s.url ? `<div class="durl">${esc(s.url.replace('https://',''))}</div>` : ''}
+    </div>`).join('');
+}
+
+function renderDepHistory(history){
+  const tbody = document.getElementById('dep-history');
+  if (!history.length){ tbody.innerHTML = '<tr><td colspan="4" class="empty">No deploy history.</td></tr>'; return; }
+  tbody.innerHTML = history.map(h => `
+    <tr>
+      <td class="mono">${timeSince(h.deployed_at)}</td>
+      <td style="color:var(--text)">${esc(h.service_name)}</td>
+      <td><span class="pill ${h.result==='healthy'?'ok':h.result==='error'?'err':'warn'}" style="font-size:9px">${esc(h.result)}</span></td>
+      <td class="mono" style="color:var(--t2)">${esc(h.commit_message||'—')}</td>
+    </tr>`).join('');
+}
+
+async function refreshDeploys(){
+  const btn = document.querySelector('#deployments .btn');
+  const orig = btn.textContent;
+  btn.textContent = '↻ Polling…';
+  btn.disabled = true;
+  await fetch('/api/deployments/refresh', {method:'POST'});
+  await loadDeployments();
+  btn.textContent = orig;
+  btn.disabled = false;
+}
+
+// ── budget ─────────────────────────────────────────────────────────────────
+async function loadBudget(){
+  const [summary, budget, apis] = await Promise.all([
+    fetch('/api/budget/summary').then(r => r.json()),
+    fetch('/api/budget').then(r => r.json()),
+    fetch('/api/apis').then(r => r.json()),
+  ]);
+  // Summary cards
+  const fly    = budget.filter(b => b.platform === 'fly.io' && b.active).reduce((a,b) => a+b.cost_gbp, 0);
+  const rail   = budget.filter(b => b.platform === 'railway' && b.active).reduce((a,b) => a+b.cost_gbp, 0);
+  const cf     = budget.filter(b => b.platform === 'cloudflare' && b.active).reduce((a,b) => a+b.cost_gbp, 0);
+  document.getElementById('b-fly').textContent = '£' + fly.toFixed(2);
+  document.getElementById('b-rail').textContent = '£' + rail.toFixed(2);
+  document.getElementById('b-cf').textContent = '£' + cf.toFixed(2);
+  document.getElementById('b-api').textContent = '£' + summary.api_30d_gbp.toFixed(2);
+  document.getElementById('b-total').textContent = '£' + summary.total_gbp.toFixed(2);
+
+  // API table
+  const tbody = document.getElementById('api-tbody');
+  if (!apis.length){ tbody.innerHTML = '<tr><td colspan="6" class="empty">No APIs registered.</td></tr>'; return; }
+  tbody.innerHTML = apis.map(a => `
+    <tr>
+      <td style="color:var(--text);font-weight:500">${esc(a.name)}</td>
+      <td>${esc(a.provider)}</td>
+      <td class="mono">${esc(a.billing_model)}</td>
+      <td class="mono">${a.cost_per_unit_gbp ? '£'+a.cost_per_unit_gbp : '—'}</td>
+      <td><span class="pill gray" style="font-size:9px">manual</span></td>
+      <td><span class="pill ${a.active ? 'ok':'gray'}"><span class="dot"></span>${a.active ? 'active':'inactive'}</span></td>
+    </tr>`).join('');
+}
+
+// ── utils ──────────────────────────────────────────────────────────────────
+function esc(s){ const d = document.createElement('div'); d.textContent = s||''; return d.innerHTML; }
+
+// ── init ───────────────────────────────────────────────────────────────────
+loadedTabs.add('projects');
+loadProjects();
+</script>
+</body>
+</html>
