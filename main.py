@@ -3,7 +3,7 @@ main.py — Rialú FastAPI application.
 
 Startup sequence:
   1. init_db()           — run SQLite migrations
-  2. scheduler.start()   — begin background pollers
+  2. scheduler.start()   — begin background pollers (skipped in test mode)
   3. serve routes        — API + static SPA
 
 Auth: Cloudflare Access injects Cf-Access-Authenticated-User-Email.
@@ -14,7 +14,7 @@ Auth: Cloudflare Access injects Cf-Access-Authenticated-User-Email.
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -22,14 +22,19 @@ from db import init_db
 from poller import setup_scheduler
 from routers import projects, worklog, deployments, budget, machines
 
+TEST_MODE = os.environ.get("RIALU_TEST") == "1"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    sched = setup_scheduler()
-    sched.start()
+    if not TEST_MODE:
+        sched = setup_scheduler()
+        sched.start()
     yield
-    sched.shutdown(wait=False)
+    if not TEST_MODE:
+        from poller import scheduler
+        scheduler.shutdown(wait=False)
 
 
 app = FastAPI(
@@ -77,4 +82,9 @@ if os.path.isdir(STATIC_DIR):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), reload=True)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8080)),
+        reload=True,
+    )
