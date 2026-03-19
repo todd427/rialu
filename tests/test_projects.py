@@ -2,12 +2,8 @@
 tests/test_projects.py — Integration tests for /api/projects endpoints.
 """
 
-import os
-import tempfile
 import pytest
 from fastapi.testclient import TestClient
-
-os.environ["RIALU_DB"] = tempfile.mktemp(suffix=".db")
 
 from main import app
 from db import init_db
@@ -121,7 +117,6 @@ def test_milestones_cascade_delete():
     pid = r.json()["id"]
     client.post(f"/api/projects/{pid}/milestones", json={"title": "Should vanish"})
     client.delete(f"/api/projects/{pid}")
-    # project gone, milestones should be gone too (CASCADE)
     resp = client.get(f"/api/projects/{pid}/milestones")
     assert resp.json() == []
 
@@ -135,6 +130,5 @@ def test_log_session_creates_worklog():
         "duration_minutes": 45,
     })
     assert resp.status_code == 201
-    # Check worklog entry was created
     wl = client.get("/api/worklog").json()
     assert any(e["project_id"] == pid and e["minutes"] == 45 for e in wl)

@@ -2,12 +2,8 @@
 tests/test_deployments.py — Integration tests for /api/deployments endpoints.
 """
 
-import os
-import tempfile
 import pytest
 from fastapi.testclient import TestClient
-
-os.environ["RIALU_DB"] = tempfile.mktemp(suffix=".db")
 
 from main import app
 from db import init_db, db
@@ -62,7 +58,6 @@ def test_deploy_history_empty():
 
 
 def test_refresh_endpoint():
-    """Refresh endpoint should return 200 — pollers will no-op without tokens."""
     resp = client.post("/api/deployments/refresh")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"

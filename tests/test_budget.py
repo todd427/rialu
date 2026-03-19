@@ -2,12 +2,8 @@
 tests/test_budget.py — Integration tests for /api/budget and /api/apis endpoints.
 """
 
-import os
-import tempfile
 import pytest
 from fastapi.testclient import TestClient
-
-os.environ["RIALU_DB"] = tempfile.mktemp(suffix=".db")
 
 from main import app
 from db import init_db

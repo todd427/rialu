@@ -2,14 +2,10 @@
 tests/test_db.py — Unit tests for db.py: init, migrations, context manager.
 """
 
-import os
 import sqlite3
-import tempfile
 import pytest
 
-os.environ["RIALU_DB"] = tempfile.mktemp(suffix=".db")
-
-from db import init_db, db, row_to_dict, MIGRATIONS
+from db import init_db, db, row_to_dict
 
 
 def test_init_db_creates_tables():
@@ -31,7 +27,6 @@ def test_init_db_creates_tables():
 
 
 def test_init_db_idempotent():
-    """Running init_db twice should not raise."""
     init_db()
     init_db()
 
@@ -53,35 +48,42 @@ def test_context_manager_commits():
 
 def test_context_manager_rollback_on_error():
     init_db()
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO projects (name, slug, status) VALUES (?,?,?)",
+            ("First", "unique-slug", "research"),
+        )
     with pytest.raises(sqlite3.IntegrityError):
         with db() as conn:
             conn.execute(
                 "INSERT INTO projects (name, slug, status) VALUES (?,?,?)",
-                ("Dup", "test-project", "research"),
+                ("Dup", "unique-slug-2", "research"),
             )
             conn.execute(
                 "INSERT INTO projects (name, slug, status) VALUES (?,?,?)",
-                ("Dup2", "test-project", "research"),  # duplicate slug — should fail
+                ("Dup2", "unique-slug-2", "research"),  # duplicate — should fail
             )
-    # The first insert should have been rolled back
+    # The second INSERT should have been rolled back — unique-slug-2 should not exist
     with db() as conn:
         count = conn.execute(
-            "SELECT COUNT(*) as c FROM projects WHERE slug = 'test-project'"
+            "SELECT COUNT(*) as c FROM projects WHERE slug = 'unique-slug-2'"
         ).fetchone()["c"]
-    # Either 0 (full rollback) or 1 (from previous test) — not 2
-    assert count <= 1
+    assert count == 0
 
 
 def test_row_to_dict():
     init_db()
     with db() as conn:
+        conn.execute(
+            "INSERT INTO projects (name, slug, status) VALUES (?,?,?)",
+            ("Dict Test", "dict-test", "research"),
+        )
         row = conn.execute(
-            "SELECT * FROM projects WHERE slug = 'test-project'"
+            "SELECT * FROM projects WHERE slug = 'dict-test'"
         ).fetchone()
-    if row:
-        d = row_to_dict(row)
-        assert isinstance(d, dict)
-        assert "name" in d
+    d = row_to_dict(row)
+    assert isinstance(d, dict)
+    assert "name" in d
     assert row_to_dict(None) == {}
 
 

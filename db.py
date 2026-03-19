@@ -2,6 +2,9 @@
 db.py — SQLite initialisation, migrations, and connection helper.
 Database file lives at /data/rialu.db in production (Fly.io volume),
 or ./rialu.db locally.
+
+DB_PATH is resolved dynamically on every get_connection() call so that
+tests can override RIALU_DB per-test via the environment.
 """
 
 import os
@@ -9,13 +12,15 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-DB_PATH = os.environ.get("RIALU_DB", str(Path(__file__).parent / "rialu.db"))
-if os.environ.get("FLY_APP_NAME"):
-    DB_PATH = "/data/rialu.db"
+
+def _db_path() -> str:
+    if os.environ.get("FLY_APP_NAME"):
+        return "/data/rialu.db"
+    return os.environ.get("RIALU_DB", str(Path(__file__).parent / "rialu.db"))
 
 
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_db_path())
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -201,7 +206,6 @@ def init_db() -> None:
     with db() as conn:
         for sql in MIGRATIONS:
             conn.execute(sql)
-    print(f"[db] initialised — {DB_PATH}")
 
 
 def row_to_dict(row: sqlite3.Row) -> dict:
