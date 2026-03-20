@@ -217,3 +217,52 @@ def test_agent_action_queued():
     data = resp.json()
     assert data["status"] == "queued"
     assert "action_id" in data
+
+
+# ── GET /api/machines/claude ─────────────────────────────────────────────────
+
+def test_claude_sessions_empty():
+    resp = client.get("/api/machines/claude")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+# ── GET /api/machines/status ─────────────────────────────────────────────────
+
+def test_machines_status_empty():
+    resp = client.get("/api/machines/status")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), dict)
+
+
+def test_machines_status_with_heartbeat():
+    _post_heartbeat(_heartbeat_payload(machine="daisy"))
+    resp = client.get("/api/machines/status")
+    data = resp.json()
+    assert "daisy" in data
+    assert data["daisy"]["ws_connected"] is False  # no WS in test
+    assert data["daisy"]["last_heartbeat"] is not None
+
+
+# ── GET /api/machines/{machine}/tmux ─────────────────────────────────────────
+
+def test_tmux_no_agent():
+    resp = client.get("/api/machines/daisy/tmux")
+    assert resp.status_code == 404
+
+
+# ── POST /api/machines/{machine}/send ────────────────────────────────────────
+
+def test_send_keys_no_agent():
+    resp = client.post("/api/machines/daisy/send", json={
+        "pane_id": "main:0.0",
+        "keys": "y Enter",
+    })
+    assert resp.status_code == 404
+
+
+# ── terminal_sessions table ──────────────────────────────────────────────────
+
+def test_terminal_sessions_table_exists():
+    with db() as conn:
+        conn.execute("SELECT * FROM terminal_sessions LIMIT 1")

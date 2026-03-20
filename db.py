@@ -193,7 +193,18 @@ MIGRATIONS = [
         created_at      TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
-    # 002 — indexes
+    # 002 — terminal sessions
+    """
+    CREATE TABLE IF NOT EXISTS terminal_sessions (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        machine_name    TEXT NOT NULL,
+        channel_id      TEXT NOT NULL UNIQUE,
+        pane_id         TEXT,
+        opened_at       TEXT NOT NULL DEFAULT (datetime('now')),
+        closed_at       TEXT
+    )
+    """,
+    # 003 — indexes
     "CREATE INDEX IF NOT EXISTS idx_worklog_date ON worklog(date)",
     "CREATE INDEX IF NOT EXISTS idx_worklog_project ON worklog(project_id)",
     "CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones(project_id)",

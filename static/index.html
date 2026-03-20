@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rialú</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-height:100vh}
@@ -138,6 +139,36 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
 .m-proc-script{color:var(--t2);font-family:monospace;font-size:10px}
 .m-proc-meta{margin-left:auto;color:var(--t3);font-size:10px;white-space:nowrap}
 .m-lastseen{font-size:10px;color:var(--t3);margin-top:8px}
+/* claude code panel */
+.claude-panel{margin-bottom:16px}
+.claude-row{display:flex;align-items:flex-start;gap:10px;background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;padding:10px 12px;margin-bottom:6px}
+.claude-row.waiting{border-color:var(--warn);background:var(--warn2)}
+.claude-info{flex:1;min-width:0}
+.claude-machine{font-size:12px;font-weight:600;color:var(--text)}
+.claude-session{font-size:11px;color:var(--t2);margin-top:2px}
+.claude-output{font-family:monospace;font-size:10px;color:var(--t3);margin-top:6px;max-height:80px;overflow-y:auto;white-space:pre-wrap;line-height:1.4;background:var(--bg);border-radius:4px;padding:6px 8px}
+.claude-actions{display:flex;gap:5px;flex-shrink:0;flex-wrap:wrap;align-items:flex-start}
+.claude-prompt{font-size:11px;color:var(--warn);font-weight:500;margin-top:4px}
+/* tmux browser */
+.tmux-section{margin-bottom:16px}
+.tmux-session{background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;padding:10px 12px;margin-bottom:6px}
+.tmux-session-hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.tmux-session-name{font-size:13px;font-weight:600;color:var(--text)}
+.tmux-pane{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--bd);font-size:11px}
+.tmux-pane:last-child{border-bottom:none}
+.tmux-pane-id{font-family:monospace;color:var(--acc3);font-size:10px;min-width:80px}
+.tmux-pane-cmd{color:var(--t2);flex:1}
+/* terminal overlay */
+.term-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:100;display:none;flex-direction:column}
+.term-overlay.on{display:flex}
+.term-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:var(--hdr);border-bottom:0.5px solid var(--bd)}
+.term-tabs{display:flex;gap:4px;flex:1;overflow-x:auto}
+.term-tab{padding:5px 12px;font-size:11px;color:var(--t2);cursor:pointer;border-radius:4px;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.term-tab.on{background:var(--acc2);color:var(--acc3)}
+.term-tab-close{font-size:9px;color:var(--t3);cursor:pointer}
+.term-tab-close:hover{color:var(--err)}
+.term-body{flex:1;padding:4px;overflow:hidden}
+.term-body .xterm{height:100%}
 @media(max-width:600px){.detail-grid{grid-template-columns:1fr}.kboard{grid-template-columns:1fr 1fr}.m-grid{grid-template-columns:1fr}}
 </style>
 </head>
@@ -271,8 +302,20 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
 
 <!-- MACHINES -->
 <div id="machines" class="panel">
-  <div class="row"><span class="slabel" id="machine-count">Machine agents</span></div>
+  <div class="row">
+    <span class="slabel" id="machine-count">Machine agents</span>
+    <button class="btn btn-acc" onclick="openNewTerminal()">+ Terminal</button>
+  </div>
+
+  <div class="slabel" style="margin-bottom:8px">Claude Code sessions</div>
+  <div class="claude-panel" id="claude-panel"><div class="empty">No Claude Code sessions detected.</div></div>
+
+  <div class="slabel" style="margin-bottom:8px">Machines</div>
   <div class="m-grid" id="machine-cards"><div class="loading">Loading...</div></div>
+
+  <div class="slabel" style="margin-bottom:8px">tmux sessions</div>
+  <div class="tmux-section" id="tmux-section"><div class="empty">No tmux sessions.</div></div>
+
   <div class="slabel" style="margin-bottom:8px">Repo status</div>
   <div style="background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;overflow:hidden">
     <table class="tbl">
@@ -280,6 +323,15 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
       <tbody id="repo-tbody"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody>
     </table>
   </div>
+</div>
+
+<!-- TERMINAL OVERLAY -->
+<div class="term-overlay" id="term-overlay">
+  <div class="term-hdr">
+    <div class="term-tabs" id="term-tabs"></div>
+    <button class="btn" onclick="closeAllTerminals()">Close all</button>
+  </div>
+  <div class="term-body" id="term-body"></div>
 </div>
 
 <!-- DEPLOYMENTS -->
@@ -715,14 +767,29 @@ async function loadBudget(){
 }
 
 // ── machines ───────────────────────────────────────────────────────────────
+let machinesRefreshInterval = null;
+
 async function loadMachines(){
   try {
-    const machines = await fetch('/api/machines').then(r => r.json());
+    const [machines, claude] = await Promise.all([
+      fetch('/api/machines').then(r => r.json()),
+      fetch('/api/machines/claude').then(r => r.json()),
+    ]);
     document.getElementById('machine-count').textContent = machines.length + ' machine' + (machines.length !== 1 ? 's' : '') + ' reporting';
     renderMachineCards(machines);
     renderRepoTable(machines);
+    renderClaudePanel(claude);
+    loadTmuxSessions(machines);
   } catch(e){
     document.getElementById('machine-cards').innerHTML = '<div class="empty">Could not load machine data.</div>';
+  }
+  // Auto-refresh every 10s while on machines tab
+  if (!machinesRefreshInterval) {
+    machinesRefreshInterval = setInterval(() => {
+      const machTab = document.querySelector('.ntab[data-p=machines]');
+      if (machTab && machTab.classList.contains('on')) loadMachines();
+      else { clearInterval(machinesRefreshInterval); machinesRefreshInterval = null; }
+    }, 10000);
   }
 }
 
@@ -772,6 +839,9 @@ function renderMachineCards(machines){
           ${p.script ? `<span class="m-proc-script">${esc(p.script)}</span>` : ''}
           <span class="m-proc-meta">PID ${p.pid} · ${fmtUptime(p.uptime_s)}</span>
         </div>`).join('')}</div>` : ''}
+      <div style="margin-top:8px;display:flex;gap:5px">
+        <button class="btn" onclick="openTerminalFor('${esc(m.machine_name)}')" style="font-size:10px">Terminal</button>
+      </div>
       ${offline ? `<div class="m-lastseen">last seen ${hb.text}</div>` : ''}
     </div>`;
   }).join('');
@@ -799,6 +869,230 @@ function renderRepoTable(machines){
       <td class="mono" style="color:var(--t2)">${r.last_commit ? '<span style="color:var(--t3)">' + esc(r.last_commit) + '</span> ' + msg : '—'}</td>
     </tr>`;
   }).join('');
+}
+
+// ── Claude Code panel ─────────────────────────────────────────────────────
+function renderClaudePanel(sessions){
+  const el = document.getElementById('claude-panel');
+  if (!sessions || !sessions.length){
+    el.innerHTML = '<div class="empty">No Claude Code sessions detected.</div>';
+    return;
+  }
+  el.innerHTML = sessions.map(s => {
+    const isWaiting = s.claude_state === 'waiting';
+    const lastLines = (s.last_lines || []).join('\n');
+    return `<div class="claude-row${isWaiting ? ' waiting' : ''}">
+      <div class="claude-info">
+        <div class="claude-machine">${esc(s.machine)} <span style="color:var(--t3);font-weight:400">· ${esc(s.session)}</span></div>
+        <div class="claude-session">pane ${esc(s.pane_id)} · PID ${s.pid}</div>
+        ${isWaiting ? `<div class="claude-prompt">${esc(s.waiting_prompt)}</div>` : ''}
+        <div class="claude-output">${esc(lastLines)}</div>
+      </div>
+      <div class="claude-actions">
+        ${isWaiting ? `
+          <button class="btn btn-ok" onclick="claudeSend('${esc(s.machine)}','${esc(s.pane_id)}','y Enter')" style="font-size:10px">Yes</button>
+          <button class="btn btn-warn" onclick="claudeSend('${esc(s.machine)}','${esc(s.pane_id)}','n Enter')" style="font-size:10px">No</button>
+          <button class="btn" onclick="claudeSend('${esc(s.machine)}','${esc(s.pane_id)}','Enter')" style="font-size:10px">Enter</button>
+          <button class="btn" onclick="claudeSend('${esc(s.machine)}','${esc(s.pane_id)}','Escape')" style="font-size:10px">Esc</button>
+        ` : ''}
+        <button class="btn btn-acc" onclick="openPaneTerminal('${esc(s.machine)}','${esc(s.pane_id)}')" style="font-size:10px">Open terminal</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function claudeSend(machine, paneId, keys){
+  await fetch(`/api/machines/${machine}/send`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({pane_id: paneId, keys: keys}),
+  });
+  // Refresh after a short delay
+  setTimeout(loadMachines, 1500);
+}
+
+// ── tmux sessions ─────────────────────────────────────────────────────────
+async function loadTmuxSessions(machines){
+  const el = document.getElementById('tmux-section');
+  const allSessions = [];
+  for (const m of machines) {
+    try {
+      const sessions = await fetch(`/api/machines/${m.machine_name}/tmux`).then(r => r.json());
+      sessions.forEach(s => { s._machine = m.machine_name; });
+      allSessions.push(...sessions);
+    } catch(e) {}
+  }
+  if (!allSessions.length){ el.innerHTML = '<div class="empty">No tmux sessions.</div>'; return; }
+  el.innerHTML = allSessions.map(s => `
+    <div class="tmux-session">
+      <div class="tmux-session-hdr">
+        <span class="tmux-session-name">${esc(s._machine)}:${esc(s.name)}</span>
+        <span class="pill ${s.attached ? 'ok' : 'gray'}" style="font-size:9px">${s.attached ? 'attached' : 'detached'}</span>
+        <span class="pmeta">${s.windows} window${s.windows !== 1 ? 's' : ''}</span>
+      </div>
+      ${(s.panes || []).map(p => `
+        <div class="tmux-pane">
+          <span class="tmux-pane-id">${esc(p.pane_id)}</span>
+          <span class="tmux-pane-cmd">${esc(p.command)}</span>
+          <span class="pmeta">${p.width}x${p.height}</span>
+          <button class="btn" onclick="openPaneTerminal('${esc(s._machine)}','${esc(p.pane_id)}')" style="font-size:9px;padding:2px 6px">Attach</button>
+        </div>`).join('')}
+    </div>`).join('');
+}
+
+// ── terminal management (xterm.js) ────────────────────────────────────────
+let terminalInstances = {};  // id -> {term, ws, fitAddon}
+let activeTerminalId = null;
+let xtermLoaded = false;
+
+function loadXtermJS(cb){
+  if (xtermLoaded) return cb();
+  const s1 = document.createElement('script');
+  s1.src = 'https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js';
+  s1.onload = () => {
+    const s2 = document.createElement('script');
+    s2.src = 'https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js';
+    s2.onload = () => { xtermLoaded = true; cb(); };
+    document.head.appendChild(s2);
+  };
+  document.head.appendChild(s1);
+}
+
+function wsBase(){
+  const loc = window.location;
+  return (loc.protocol === 'https:' ? 'wss://' : 'ws://') + loc.host;
+}
+
+function openNewTerminal(){
+  // Pick first connected machine
+  const cards = document.querySelectorAll('.m-card:not(.offline) .m-name');
+  if (!cards.length){ alert('No machines online'); return; }
+  const machine = cards[0].textContent;
+  openTerminalFor(machine);
+}
+
+function openTerminalFor(machine){
+  loadXtermJS(() => {
+    const id = 'term-' + Date.now();
+    createTerminal(id, machine, `${wsBase()}/ws/terminal/${machine}`, machine);
+  });
+}
+
+function openPaneTerminal(machine, paneId){
+  loadXtermJS(() => {
+    const id = 'pane-' + Date.now();
+    const label = machine + ':' + paneId;
+    createTerminal(id, label, `${wsBase()}/ws/pane/${machine}/${paneId}`, machine, paneId);
+  });
+}
+
+function createTerminal(id, label, wsUrl, machine, paneId){
+  const overlay = document.getElementById('term-overlay');
+  overlay.classList.add('on');
+
+  // Create terminal
+  const term = new Terminal({
+    fontSize: 13,
+    fontFamily: 'monospace',
+    theme: { background: '#0b0f14' },
+    cursorBlink: true,
+  });
+  const fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+
+  // Create container
+  const container = document.createElement('div');
+  container.id = id;
+  container.style.cssText = 'width:100%;height:100%;display:none';
+  document.getElementById('term-body').appendChild(container);
+
+  term.open(container);
+
+  // Connect WebSocket
+  const ws = new WebSocket(wsUrl);
+  ws.onopen = () => {
+    fitAddon.fit();
+    ws.send(JSON.stringify({type:'resize', cols:term.cols, rows:term.rows}));
+  };
+  ws.onmessage = (evt) => {
+    const data = JSON.parse(evt.data);
+    if (data.type === 'terminal_data' || data.type === 'pane_data') {
+      term.write(data.data);
+    } else if (data.type === 'terminal_closed') {
+      term.write('\r\n\x1b[31m[Session ended]\x1b[0m\r\n');
+    }
+  };
+  ws.onclose = () => {
+    term.write('\r\n\x1b[33m[Disconnected]\x1b[0m\r\n');
+  };
+
+  // Send input (only for shell terminals, not pane streams)
+  if (!paneId) {
+    term.onData((data) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type:'data', data:data}));
+      }
+    });
+  }
+
+  // Handle resize
+  term.onResize(({cols, rows}) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({type:'resize', cols, rows}));
+    }
+  });
+
+  window.addEventListener('resize', () => fitAddon.fit());
+
+  terminalInstances[id] = {term, ws, fitAddon, label, container};
+  switchTerminal(id);
+  renderTermTabs();
+}
+
+function switchTerminal(id){
+  // Hide all, show target
+  Object.entries(terminalInstances).forEach(([tid, t]) => {
+    t.container.style.display = tid === id ? 'block' : 'none';
+  });
+  activeTerminalId = id;
+  renderTermTabs();
+  const t = terminalInstances[id];
+  if (t) {
+    setTimeout(() => { t.fitAddon.fit(); t.term.focus(); }, 50);
+  }
+}
+
+function renderTermTabs(){
+  const el = document.getElementById('term-tabs');
+  el.innerHTML = Object.entries(terminalInstances).map(([id, t]) =>
+    `<div class="term-tab${id === activeTerminalId ? ' on' : ''}" onclick="switchTerminal('${id}')">
+      ${esc(t.label)}
+      <span class="term-tab-close" onclick="event.stopPropagation();closeTerminal('${id}')">×</span>
+    </div>`
+  ).join('');
+}
+
+function closeTerminal(id){
+  const t = terminalInstances[id];
+  if (t) {
+    t.ws.close();
+    t.term.dispose();
+    t.container.remove();
+    delete terminalInstances[id];
+  }
+  if (activeTerminalId === id) {
+    const remaining = Object.keys(terminalInstances);
+    if (remaining.length) switchTerminal(remaining[0]);
+    else closeAllTerminals();
+  } else {
+    renderTermTabs();
+  }
+}
+
+function closeAllTerminals(){
+  Object.keys(terminalInstances).forEach(closeTerminal);
+  document.getElementById('term-overlay').classList.remove('on');
+  activeTerminalId = null;
 }
 
 // ── utils ──────────────────────────────────────────────────────────────────

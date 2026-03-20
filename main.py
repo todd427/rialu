@@ -13,14 +13,16 @@ Auth: Cloudflare Access injects Cf-Access-Authenticated-User-Email.
 
 import os
 from contextlib import asynccontextmanager
+from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from db import init_db
 from poller import setup_scheduler
 from routers import projects, worklog, deployments, budget, machines
+from ws_hub import hub
 
 TEST_MODE = os.environ.get("RIALU_TEST") == "1"
 
@@ -53,6 +55,26 @@ app.include_router(worklog.router)
 app.include_router(deployments.router)
 app.include_router(budget.router)
 app.include_router(machines.router)
+
+
+# ── WebSocket routes ─────────────────────────────────────────────────────────
+
+@app.websocket("/ws/agent")
+async def ws_agent(websocket: WebSocket):
+    """Persistent agent connection — heartbeats, terminal bridging, tmux."""
+    await hub.handle_agent(websocket)
+
+
+@app.websocket("/ws/terminal/{machine}")
+async def ws_terminal(websocket: WebSocket, machine: str):
+    """Browser terminal — opens a shell on the named machine."""
+    await hub.handle_browser_terminal(websocket, machine)
+
+
+@app.websocket("/ws/pane/{machine}/{pane_id:path}")
+async def ws_pane(websocket: WebSocket, machine: str, pane_id: str):
+    """Browser pane attachment — streams an existing tmux pane."""
+    await hub.handle_browser_terminal(websocket, machine, pane_id=pane_id)
 
 
 # ── health ───────────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from db import db, row_to_dict
+from ws_hub import hub
 
 router = APIRouter(prefix="/api", tags=["machines"])
 
@@ -131,11 +132,79 @@ async def agent_result(request: Request):
 
 
 @router.post("/agent/action", status_code=201)
-def agent_action(payload: ActionIn):
-    """Stub — queue an action for a machine agent. Phase 3 will proxy to the agent."""
+async def agent_action(payload: ActionIn):
+    """Queue an action and forward to agent via WebSocket if connected."""
     with db() as conn:
         cur = conn.execute(
             "INSERT INTO agent_actions (machine_name, action_type, payload) VALUES (?, ?, ?)",
             (payload.machine, payload.action_type, payload.payload),
         )
-    return {"status": "queued", "action_id": cur.lastrowid}
+        action_id = cur.lastrowid
+
+    # Try to send via WebSocket
+    sent = await hub.send_to_agent(payload.machine, {
+        "type": "action",
+        "action_id": action_id,
+        "action_type": payload.action_type,
+        "payload": payload.payload,
+    })
+    return {
+        "status": "sent" if sent else "queued",
+        "action_id": action_id,
+    }
+
+
+# ── tmux / Claude Code / send-keys ──────────────────────────────────────────
+
+@router.get("/machines/{machine}/tmux")
+async def get_tmux(machine: str):
+    """Get tmux sessions/panes for a machine via the WebSocket agent."""
+    sessions = await hub.request_tmux_list(machine)
+    if sessions is None:
+        raise HTTPException(status_code=404, detail=f"Machine '{machine}' not connected")
+    return sessions
+
+
+@router.get("/machines/claude")
+def get_claude_sessions():
+    """Get all Claude Code sessions across all machines."""
+    return hub.get_claude_sessions()
+
+
+class SendKeysIn(BaseModel):
+    pane_id: str
+    keys: str
+
+
+@router.post("/machines/{machine}/send")
+async def send_keys(machine: str, payload: SendKeysIn):
+    """Inject keystrokes into a tmux pane on a machine."""
+    sent = await hub.send_to_agent(machine, {
+        "type": "send_keys",
+        "pane_id": payload.pane_id,
+        "keys": payload.keys,
+    })
+    if not sent:
+        raise HTTPException(status_code=404, detail=f"Machine '{machine}' not connected")
+    return {"status": "sent"}
+
+
+@router.get("/machines/status")
+def machines_status():
+    """Quick status: which machines are connected via WebSocket."""
+    connected = hub.connected_machines()
+    with db() as conn:
+        rows = conn.execute("""
+            SELECT machine_name, received_at FROM machine_heartbeats
+            ORDER BY machine_name
+        """).fetchall()
+    machines = {}
+    for r in rows:
+        machines[r["machine_name"]] = {
+            "last_heartbeat": r["received_at"],
+            "ws_connected": r["machine_name"] in connected,
+        }
+    for m in connected:
+        if m not in machines:
+            machines[m] = {"last_heartbeat": None, "ws_connected": True}
+    return machines
