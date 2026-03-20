@@ -11,7 +11,7 @@
 #   RIALU_MACHINE_NAME=daisy
 #
 # Screen fallback (no systemd):
-#   screen -dmS rialu-agent bash -c 'source ~/agentEnv/bin/activate && cd /home/todd/Projects/rialu/agent && python rialu-agent.py'
+#   screen -dmS rialu-agent bash -c 'source ~/agentEnv/bin/activate && cd /home/Projects/rialu/agent && python rialu-agent.py'
 
 [Unit]
 Description=Rialú machine agent
@@ -22,8 +22,8 @@ Wants=network-online.target
 Type=simple
 User=todd
 EnvironmentFile=/etc/rialu-agent.env
-WorkingDirectory=/home/todd/Projects/rialu/agent
-ExecStart=/home/todd/agentEnv/bin/python /home/todd/Projects/rialu/agent/rialu-agent.py
+WorkingDirectory=/home/Projects/rialu/agent
+ExecStart=/home/todd/agentEnv/bin/python /home/Projects/rialu/agent/rialu-agent.py
 Restart=on-failure
 RestartSec=5
 

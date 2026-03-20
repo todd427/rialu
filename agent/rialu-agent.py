@@ -41,9 +41,6 @@ AGENT_KEY = os.environ.get("RIALU_AGENT_KEY", "")
 MACHINE_NAME = os.environ.get("RIALU_MACHINE_NAME", "unknown")
 HEARTBEAT_INTERVAL = int(os.environ.get("RIALU_HEARTBEAT_INTERVAL", "30"))
 
-PROJECTS_DIR = Path(os.environ.get("RIALU_PROJECTS_DIR", str(Path.home() / "Projects")))
-
-
 def load_config() -> dict:
     """Load config from ~/.rialu-agent.json or /etc/rialu-agent.json."""
     for path in [Path.home() / ".rialu-agent.json", Path("/etc/rialu-agent.json")]:
@@ -59,6 +56,8 @@ def load_config() -> dict:
 CONFIG = load_config()
 # List of project names to match against running processes
 KNOWN_PROJECTS = CONFIG.get("projects", [])
+# Directories to scan for git repos — explicit list from config
+REPO_DIRS = [Path(p) for p in CONFIG.get("repo_dirs", [])]
 
 
 # ── Resource collection ──────────────────────────────────────────────────────
@@ -139,11 +138,18 @@ def _run_git(repo_path: Path, args: list) -> str:
 
 
 def scan_repos() -> list:
-    """Scan PROJECTS_DIR for git repos and return their state."""
-    if not PROJECTS_DIR.is_dir():
+    """Scan configured repo_dirs for git repos and return their state."""
+    if not REPO_DIRS:
+        log.warning("No repo_dirs configured in agent config — skipping repo scan")
         return []
     repos = []
-    for entry in sorted(PROJECTS_DIR.iterdir()):
+    entries = []
+    for d in REPO_DIRS:
+        if not d.is_dir():
+            log.warning("repo_dirs path not found: %s", d)
+            continue
+        entries.extend(sorted(d.iterdir()))
+    for entry in entries:
         git_dir = entry / ".git"
         if not entry.is_dir() or not git_dir.exists():
             continue
