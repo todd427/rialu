@@ -117,7 +117,28 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
 .hint{font-size:11px;color:var(--t3);margin-top:9px}
 .loading{color:var(--t3);font-size:12px;padding:20px 0;text-align:center}
 .empty{color:var(--t3);font-size:12px;padding:20px 0;text-align:center}
-@media(max-width:600px){.detail-grid{grid-template-columns:1fr}.kboard{grid-template-columns:1fr 1fr}}
+/* machines */
+.m-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;margin-bottom:16px}
+.m-card{background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;padding:12px;transition:opacity .2s}
+.m-card.offline{opacity:.45}
+.m-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.m-name{font-size:14px;font-weight:600;color:var(--text)}
+.m-hb{font-size:10px}
+.rbar-wrap{margin-bottom:4px}
+.rbar-label{display:flex;justify-content:space-between;font-size:10px;color:var(--t3);margin-bottom:2px}
+.rbar{height:6px;border-radius:3px;background:var(--bg3);overflow:hidden}
+.rbar-fill{height:100%;border-radius:3px;transition:width .3s}
+.rbar-cpu .rbar-fill{background:var(--acc)}
+.rbar-ram .rbar-fill{background:var(--pur)}
+.rbar-gpu .rbar-fill{background:var(--ok)}
+.m-procs{margin-top:10px}
+.m-proc{display:flex;align-items:center;gap:6px;font-size:11px;padding:3px 0;border-bottom:0.5px solid var(--bd)}
+.m-proc:last-child{border-bottom:none}
+.m-proc-name{color:var(--acc3);font-weight:500}
+.m-proc-script{color:var(--t2);font-family:monospace;font-size:10px}
+.m-proc-meta{margin-left:auto;color:var(--t3);font-size:10px;white-space:nowrap}
+.m-lastseen{font-size:10px;color:var(--t3);margin-top:8px}
+@media(max-width:600px){.detail-grid{grid-template-columns:1fr}.kboard{grid-template-columns:1fr 1fr}.m-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -250,10 +271,14 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
 
 <!-- MACHINES -->
 <div id="machines" class="panel">
-  <div class="row"><span class="slabel">Machine agents</span></div>
-  <div style="background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;padding:20px;text-align:center">
-    <div style="font-size:12px;color:var(--t3);margin-bottom:8px">rialu-agent not yet deployed</div>
-    <div style="font-size:11px;color:var(--t3)">Phase 2 — install rialu-agent on Rose, Iris, and Daisy to enable machine monitoring and remote actions.</div>
+  <div class="row"><span class="slabel" id="machine-count">Machine agents</span></div>
+  <div class="m-grid" id="machine-cards"><div class="loading">Loading...</div></div>
+  <div class="slabel" style="margin-bottom:8px">Repo status</div>
+  <div style="background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;overflow:hidden">
+    <table class="tbl">
+      <thead><tr><th style="width:70px">Machine</th><th style="width:100px">Repo</th><th style="width:70px">Branch</th><th style="width:50px">Status</th><th style="width:60px">Ahead/Behind</th><th>Last commit</th></tr></thead>
+      <tbody id="repo-tbody"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody>
+    </table>
   </div>
 </div>
 
@@ -306,7 +331,7 @@ const TAB_LOADERS = {
   worklog: loadWorklog,
   deployments: loadDeployments,
   budget: loadBudget,
-  machines: () => {},
+  machines: loadMachines,
 };
 let loadedTabs = new Set();
 
@@ -687,6 +712,93 @@ async function loadBudget(){
       <td><span class="pill gray" style="font-size:9px">manual</span></td>
       <td><span class="pill ${a.active ? 'ok':'gray'}"><span class="dot"></span>${a.active ? 'active':'inactive'}</span></td>
     </tr>`).join('');
+}
+
+// ── machines ───────────────────────────────────────────────────────────────
+async function loadMachines(){
+  try {
+    const machines = await fetch('/api/machines').then(r => r.json());
+    document.getElementById('machine-count').textContent = machines.length + ' machine' + (machines.length !== 1 ? 's' : '') + ' reporting';
+    renderMachineCards(machines);
+    renderRepoTable(machines);
+  } catch(e){
+    document.getElementById('machine-cards').innerHTML = '<div class="empty">Could not load machine data.</div>';
+  }
+}
+
+function hbAge(iso){
+  if (!iso) return {text:'never', cls:'err'};
+  const d = new Date(iso.replace(' ','T')+'Z');
+  const s = (Date.now() - d.getTime()) / 1000;
+  if (s < 60) return {text: Math.floor(s) + 's ago', cls:'ok'};
+  if (s < 300) return {text: Math.floor(s/60) + 'm ago', cls:'warn'};
+  return {text: Math.floor(s/60) + 'm ago', cls:'err'};
+}
+
+function fmtUptime(s){
+  if (!s || s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm';
+  const h = Math.floor(s/3600);
+  const m = Math.floor((s%3600)/60);
+  return h + 'h ' + (m ? m + 'm' : '');
+}
+
+function rbar(label, pct, cls){
+  if (pct == null) return '';
+  return `<div class="rbar-wrap">
+    <div class="rbar-label"><span>${label}</span><span>${pct.toFixed(1)}%</span></div>
+    <div class="rbar ${cls}"><div class="rbar-fill" style="width:${Math.min(pct,100)}%"></div></div>
+  </div>`;
+}
+
+function renderMachineCards(machines){
+  const el = document.getElementById('machine-cards');
+  if (!machines.length){ el.innerHTML = '<div class="empty">No machines reporting. Deploy rialu-agent to get started.</div>'; return; }
+  el.innerHTML = machines.map(m => {
+    const hb = hbAge(m.received_at);
+    const offline = hb.cls === 'err';
+    const procs = m.processes || [];
+    return `<div class="m-card${offline ? ' offline' : ''}">
+      <div class="m-hdr">
+        <span class="m-name">${esc(m.machine_name)}</span>
+        <span class="pill ${hb.cls} m-hb"><span class="dot"></span>${hb.text}</span>
+      </div>
+      ${rbar('CPU', m.cpu_pct, 'rbar-cpu')}
+      ${rbar('RAM', m.ram_pct, 'rbar-ram')}
+      ${m.gpu_pct != null ? rbar('GPU', m.gpu_pct, 'rbar-gpu') : ''}
+      ${procs.length ? `<div class="m-procs">${procs.map(p =>
+        `<div class="m-proc">
+          <span class="m-proc-name">${esc(p.name)}</span>
+          ${p.script ? `<span class="m-proc-script">${esc(p.script)}</span>` : ''}
+          <span class="m-proc-meta">PID ${p.pid} · ${fmtUptime(p.uptime_s)}</span>
+        </div>`).join('')}</div>` : ''}
+      ${offline ? `<div class="m-lastseen">last seen ${hb.text}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderRepoTable(machines){
+  const tbody = document.getElementById('repo-tbody');
+  const rows = [];
+  machines.forEach(m => {
+    (m.repos || []).forEach(r => {
+      rows.push({machine: m.machine_name, ...r});
+    });
+  });
+  if (!rows.length){ tbody.innerHTML = '<tr><td colspan="6" class="empty">No repos reported.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(r => {
+    const statusPl = r.clean ? '<span class="pill ok" style="font-size:9px">clean</span>' : '<span class="pill warn" style="font-size:9px">dirty</span>';
+    const ab = (r.ahead || r.behind) ? `<span style="color:var(--ok)">+${r.ahead||0}</span> / <span style="color:var(--warn)">-${r.behind||0}</span>` : '<span style="color:var(--t3)">—</span>';
+    const msg = esc((r.last_message || '').substring(0, 60));
+    return `<tr>
+      <td style="color:var(--text)">${esc(r.machine)}</td>
+      <td style="color:var(--text);font-weight:500">${esc(r.name)}</td>
+      <td class="mono">${esc(r.branch)}</td>
+      <td>${statusPl}</td>
+      <td class="mono" style="font-size:10px">${ab}</td>
+      <td class="mono" style="color:var(--t2)">${r.last_commit ? '<span style="color:var(--t3)">' + esc(r.last_commit) + '</span> ' + msg : '—'}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ── utils ──────────────────────────────────────────────────────────────────

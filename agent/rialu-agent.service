@@ -1,0 +1,31 @@
+# rialu-agent.service — systemd unit for the Rialú machine agent.
+#
+# Install:
+#   sudo cp rialu-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now rialu-agent
+#
+# Env vars go in /etc/rialu-agent.env:
+#   RIALU_HUB_URL=https://rialu.ie
+#   RIALU_AGENT_KEY=<shared-secret>
+#   RIALU_MACHINE_NAME=daisy
+#
+# Screen fallback (no systemd):
+#   screen -dmS rialu-agent bash -c 'source ~/agentEnv/bin/activate && cd /home/todd/Projects/rialu/agent && python rialu-agent.py'
+
+[Unit]
+Description=Rialú machine agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=todd
+EnvironmentFile=/etc/rialu-agent.env
+WorkingDirectory=/home/todd/Projects/rialu/agent
+ExecStart=/home/todd/agentEnv/bin/python /home/todd/Projects/rialu/agent/rialu-agent.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
