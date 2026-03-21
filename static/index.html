@@ -194,6 +194,7 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
   <div class="ntab" data-p="machines">Machines</div>
   <div class="ntab" data-p="deployments">Deployments</div>
   <div class="ntab" data-p="budget">Budget &amp; APIs</div>
+  <div class="ntab" data-p="keys">Keys</div>
 </div>
 
 <!-- PROJECTS -->
@@ -362,6 +363,38 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
   <div class="hint">API cost attribution by project: pending Anthropic usage API integration.</div>
 </div>
 
+<!-- KEYS -->
+<div id="keys" class="panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <span class="slabel" id="key-count">Key vault</span>
+    <button class="btn btn-acc" onclick="toggleKeyForm()">+ Add key</button>
+  </div>
+  <div class="form-block" id="key-form" style="display:none">
+    <div class="dlabel" style="margin-bottom:9px;color:var(--acc3);font-size:11px">Add key</div>
+    <div class="form-row">
+      <div class="form-field" style="flex:2"><label>Name</label><input type="text" id="kf-name" placeholder="e.g. Anthropic API"></div>
+      <div class="form-field"><label>Provider</label><input type="text" id="kf-provider" placeholder="e.g. Anthropic"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field" style="flex:2"><label>Key value</label><input type="password" id="kf-value" placeholder="sk-ant-..."></div>
+      <div class="form-field"><label>Env var</label><input type="text" id="kf-envvar" placeholder="ANTHROPIC_API_KEY"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Notes</label><input type="text" id="kf-notes" placeholder="Optional notes"></div>
+    </div>
+    <div style="display:flex;gap:7px">
+      <button class="btn btn-acc" onclick="submitKey()">Save key</button>
+      <button class="btn" onclick="toggleKeyForm()">Cancel</button>
+    </div>
+  </div>
+  <div style="background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;overflow:hidden">
+    <table class="tbl">
+      <thead><tr><th style="width:140px">Name</th><th style="width:90px">Provider</th><th style="width:100px">Hint</th><th style="width:120px">Env var</th><th>Notes</th><th style="width:120px"></th></tr></thead>
+      <tbody id="key-tbody"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
 </div><!-- /app -->
 
 <script>
@@ -384,6 +417,7 @@ const TAB_LOADERS = {
   deployments: loadDeployments,
   budget: loadBudget,
   machines: loadMachines,
+  keys: loadKeys,
 };
 let loadedTabs = new Set();
 
@@ -1150,6 +1184,86 @@ function closeAllTerminals(){
   Object.keys(terminalInstances).forEach(closeTerminal);
   document.getElementById('term-overlay').classList.remove('on');
   activeTerminalId = null;
+}
+
+// ── keys ──────────────────────────────────────────────────────────────────
+async function loadKeys(){
+  try {
+    const keys = await fetch('/api/keys').then(r => r.json());
+    document.getElementById('key-count').textContent = keys.length + ' key' + (keys.length !== 1 ? 's' : '') + ' stored';
+    renderKeys(keys);
+  } catch(e){
+    document.getElementById('key-tbody').innerHTML = '<tr><td colspan="6" class="empty">Could not load keys.</td></tr>';
+  }
+}
+
+function renderKeys(keys){
+  const tbody = document.getElementById('key-tbody');
+  if (!keys.length){ tbody.innerHTML = '<tr><td colspan="6" class="empty">No keys stored. Add one above.</td></tr>'; return; }
+  tbody.innerHTML = keys.map(k => `
+    <tr>
+      <td style="color:var(--text);font-weight:500">${esc(k.name)}</td>
+      <td><span class="pill info" style="font-size:9px">${esc(k.provider)}</span></td>
+      <td class="mono" style="font-size:10px;color:var(--t3)">${esc(k.hint)}</td>
+      <td class="mono" style="font-size:10px">${esc(k.env_var||'—')}</td>
+      <td style="color:var(--t2);font-size:11px">${esc(k.notes||'')}</td>
+      <td style="text-align:right">
+        <button class="btn" onclick="revealKey(${k.id})" style="font-size:9px;padding:2px 6px">Reveal</button>
+        <button class="btn" onclick="deleteKey(${k.id})" style="font-size:9px;padding:2px 6px;color:var(--err)">Delete</button>
+      </td>
+    </tr>`).join('');
+}
+
+function toggleKeyForm(){ const f = document.getElementById('key-form'); f.style.display = f.style.display==='none'?'block':'none'; }
+
+async function submitKey(){
+  const name = document.getElementById('kf-name').value.trim();
+  const value = document.getElementById('kf-value').value;
+  if (!name || !value){ alert('Name and key value required'); return; }
+  const resp = await fetch('/api/keys', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      name,
+      provider: document.getElementById('kf-provider').value.trim() || 'unknown',
+      value,
+      env_var: document.getElementById('kf-envvar').value.trim() || null,
+      notes: document.getElementById('kf-notes').value.trim() || null,
+    }),
+  });
+  if (resp.status === 409){ alert('A key with this name already exists'); return; }
+  toggleKeyForm();
+  ['kf-name','kf-provider','kf-value','kf-envvar','kf-notes'].forEach(id => document.getElementById(id).value = '');
+  loadKeys();
+}
+
+async function revealKey(id){
+  if (!confirm('Reveal this key? This will be logged.')) return;
+  const resp = await fetch(`/api/keys/${id}/reveal`, {method:'POST'});
+  const data = await resp.json();
+  const val = data.value;
+  // Show in a temporary prompt-style display
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg2);border:1px solid var(--bd2);border-radius:8px;padding:20px;z-index:200;max-width:600px;width:90%';
+  el.innerHTML = `
+    <div class="dlabel" style="margin-bottom:8px">${esc(data.name)}</div>
+    <input type="text" value="${esc(val)}" readonly style="width:100%;background:var(--bg);border:0.5px solid var(--bd2);border-radius:5px;padding:8px;font-family:monospace;font-size:12px;color:var(--text);margin-bottom:10px" onclick="this.select()">
+    <div style="display:flex;gap:7px">
+      <button class="btn" onclick="navigator.clipboard.writeText('${esc(val).replace(/'/g,"\\'")}');this.textContent='Copied!'">Copy</button>
+      <button class="btn" onclick="this.parentElement.parentElement.remove();document.getElementById('key-backdrop').remove()">Close</button>
+    </div>`;
+  const backdrop = document.createElement('div');
+  backdrop.id = 'key-backdrop';
+  backdrop.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:199';
+  backdrop.onclick = () => { el.remove(); backdrop.remove(); };
+  document.body.appendChild(backdrop);
+  document.body.appendChild(el);
+}
+
+async function deleteKey(id){
+  if (!confirm('Delete this key? This cannot be undone.')) return;
+  await fetch(`/api/keys/${id}`, {method:'DELETE'});
+  loadKeys();
 }
 
 // ── utils ──────────────────────────────────────────────────────────────────

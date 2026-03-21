@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 
 from db import init_db
 from poller import setup_scheduler
-from routers import projects, worklog, deployments, budget, machines
+from routers import projects, worklog, deployments, budget, machines, keys
 from ws_hub import hub
 
 TEST_MODE = os.environ.get("RIALU_TEST") == "1"
@@ -74,6 +74,7 @@ app.include_router(worklog.router)
 app.include_router(deployments.router)
 app.include_router(budget.router)
 app.include_router(machines.router)
+app.include_router(keys.router)
 
 
 # ── WebSocket routes ─────────────────────────────────────────────────────────

@@ -211,6 +211,30 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_heartbeats_machine ON machine_heartbeats(machine_name, received_at)",
     # 004 — worklog auto-git lookup
     "CREATE INDEX IF NOT EXISTS idx_worklog_autogit ON worklog(project_id, date, session_type)",
+    # 005 — key vault
+    """
+    CREATE TABLE IF NOT EXISTS key_store (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        name            TEXT NOT NULL UNIQUE,
+        provider        TEXT NOT NULL,
+        encrypted_value TEXT NOT NULL,
+        hint            TEXT NOT NULL DEFAULT '••••',
+        env_var         TEXT,
+        notes           TEXT,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS key_audit_log (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        key_id          INTEGER NOT NULL REFERENCES key_store(id) ON DELETE CASCADE,
+        action          TEXT NOT NULL,
+        detail          TEXT,
+        performed_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_key_audit ON key_audit_log(key_id, performed_at)",
 ]
 
 
