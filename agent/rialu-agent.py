@@ -794,8 +794,17 @@ async def run():
 
     while True:
         try:
+            # Cloudflare Access service token headers
+            cf_headers = {}
+            cf_id = os.environ.get("CF_ACCESS_CLIENT_ID", "")
+            cf_secret = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
+            if cf_id and cf_secret:
+                cf_headers["CF-Access-Client-Id"] = cf_id
+                cf_headers["CF-Access-Client-Secret"] = cf_secret
+
             async with websockets.connect(
                 url,
+                additional_headers=cf_headers,
                 ping_interval=20,
                 ping_timeout=10,
                 max_size=2**20,
