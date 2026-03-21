@@ -136,6 +136,13 @@ class AgentHub:
                                  s["action"], s["project_id"], s["date"], s["minutes"])
                 except Exception:
                     log.exception("Error processing commits for worklog")
+            # Process API scan results
+            api_scan = data.get("api_scan", {})
+            if api_scan:
+                try:
+                    self._store_api_scan(api_scan)
+                except Exception:
+                    log.exception("Error storing API scan results")
 
         elif msg_type == "tmux_list":
             self.tmux_cache[machine] = data.get("sessions", [])
@@ -186,6 +193,47 @@ class AgentHub:
                     json.dumps(data.get("repos", [])),
                 ),
             )
+
+    def _store_api_scan(self, api_scan: dict):
+        """Store API scan results in api_registry and api_project_map."""
+        with db() as conn:
+            # Load project slugs
+            projects = conn.execute("SELECT id, slug FROM projects").fetchall()
+            slug_to_id = {r["slug"]: r["id"] for r in projects}
+
+            for repo_name, apis in api_scan.items():
+                project_id = slug_to_id.get(repo_name) or slug_to_id.get(repo_name.lower())
+                if not project_id:
+                    continue
+
+                for api_info in apis:
+                    api_name = api_info.get("api", "")
+                    provider = api_info.get("provider", "")
+                    detected_file = api_info.get("file", "")
+
+                    # Ensure api_registry entry exists
+                    existing_api = conn.execute(
+                        "SELECT id FROM api_registry WHERE name = ?", (api_name,)
+                    ).fetchone()
+                    if existing_api:
+                        api_id = existing_api["id"]
+                    else:
+                        conn.execute(
+                            "INSERT INTO api_registry (name, provider, billing_model, notes, active) VALUES (?, ?, 'unknown', 'auto-discovered by code scanner', 1)",
+                            (api_name, provider),
+                        )
+                        api_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+                    # Ensure api_project_map entry exists
+                    existing_map = conn.execute(
+                        "SELECT id FROM api_project_map WHERE api_id = ? AND project_id = ?",
+                        (api_id, project_id),
+                    ).fetchone()
+                    if not existing_map:
+                        conn.execute(
+                            "INSERT INTO api_project_map (api_id, project_id, usage_description, is_primary) VALUES (?, ?, ?, 0)",
+                            (api_id, project_id, f"detected in {detected_file}"),
+                        )
 
     async def _cleanup_machine_channels(self, machine: str):
         """Close all browser channels for a disconnected machine."""

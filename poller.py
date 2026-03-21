@@ -226,11 +226,116 @@ async def poll_railway() -> None:
         log.warning(f"[railway] poll failed: {exc}")
 
 
+# ── Fly.io billing ──────────────────────────────────────────────────────────
+
+FLY_MACHINES_API = "https://api.machines.dev/v1"
+
+# Fly.io pricing (USD/month, March 2026)
+FLY_PRICING = {
+    # shared-cpu-1x per 256MB
+    "shared": {"cpu_per": 1.94, "mem_per_256mb": 0.64},
+    # performance/dedicated
+    "performance": {"cpu_per": 29.00, "mem_per_256mb": 2.30},
+}
+FLY_VOLUME_PER_GB = 0.15  # USD/GB/month
+USD_TO_GBP = 0.79  # approximate
+
+
+async def poll_fly_billing() -> None:
+    """Estimate per-app Fly.io costs from machine specs and volumes."""
+    if not FLY_TOKEN:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            # Get all apps
+            resp = await client.post(
+                FLY_GQL,
+                headers={"Authorization": f"Bearer {FLY_TOKEN}"},
+                json={"query": "{ apps { nodes { name status } } }"},
+            )
+            resp.raise_for_status()
+            apps = resp.json().get("data", {}).get("apps", {}).get("nodes", [])
+
+            with db() as conn:
+                for app in apps:
+                    app_name = app["name"]
+                    if app.get("status") in ("suspended", "dead"):
+                        # Suspended apps only cost for volumes
+                        _upsert_budget(conn, "fly.io", app_name, 0, "monthly",
+                                       notes="suspended — volume costs only")
+                        continue
+
+                    # Get machines for this app
+                    try:
+                        mr = await client.get(
+                            f"{FLY_MACHINES_API}/apps/{app_name}/machines",
+                            headers={"Authorization": f"Bearer {FLY_TOKEN}"},
+                        )
+                        if mr.status_code != 200:
+                            continue
+                        machines = mr.json()
+                    except Exception:
+                        continue
+
+                    monthly_usd = 0.0
+                    for m in machines:
+                        guest = m.get("config", {}).get("guest", {})
+                        cpu_kind = guest.get("cpu_kind", "shared")
+                        cpus = guest.get("cpus", 1)
+                        mem_mb = guest.get("memory_mb", 256)
+
+                        pricing = FLY_PRICING.get(cpu_kind, FLY_PRICING["shared"])
+                        monthly_usd += cpus * pricing["cpu_per"]
+                        monthly_usd += (mem_mb / 256) * pricing["mem_per_256mb"]
+
+                    # Get volumes
+                    try:
+                        vr = await client.get(
+                            f"{FLY_MACHINES_API}/apps/{app_name}/volumes",
+                            headers={"Authorization": f"Bearer {FLY_TOKEN}"},
+                        )
+                        if vr.status_code == 200:
+                            volumes = vr.json()
+                            for v in volumes:
+                                size_gb = v.get("size_gb", 0)
+                                monthly_usd += size_gb * FLY_VOLUME_PER_GB
+                    except Exception:
+                        pass
+
+                    cost_gbp = round(monthly_usd * USD_TO_GBP, 2)
+                    machine_desc = f"{len(machines)} machine(s)" if machines else "no machines"
+                    _upsert_budget(conn, "fly.io", app_name, cost_gbp, "monthly",
+                                   notes=f"estimated: {machine_desc}, ${monthly_usd:.2f}/mo")
+
+        log.info("[fly.io] billing estimated for %d apps", len(apps))
+    except Exception as exc:
+        log.warning("[fly.io] billing poll failed: %s", exc)
+
+
+def _upsert_budget(conn, platform, service_name, cost_gbp, period, notes=None):
+    """Upsert a budget row by platform + service_name."""
+    existing = conn.execute(
+        "SELECT id FROM budget WHERE platform = ? AND service_name = ?",
+        (platform, service_name),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE budget SET cost_gbp = ?, notes = ?, active = 1 WHERE id = ?",
+            (cost_gbp, notes, existing["id"]),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO budget (platform, service_name, cost_gbp, period, active, notes) VALUES (?, ?, ?, ?, 1, ?)",
+            (platform, service_name, cost_gbp, period, notes),
+        )
+
+
 # ── scheduler setup ──────────────────────────────────────────────────────────
 
 def setup_scheduler() -> AsyncIOScheduler:
-    scheduler.add_job(poll_flyio,   "interval", seconds=60,  id="fly",     replace_existing=True)
-    scheduler.add_job(poll_railway, "interval", seconds=60,  id="railway", replace_existing=True)
+    scheduler.add_job(poll_flyio,       "interval", seconds=60,   id="fly",         replace_existing=True)
+    scheduler.add_job(poll_railway,     "interval", seconds=60,   id="railway",     replace_existing=True)
+    scheduler.add_job(poll_fly_billing, "interval", seconds=3600, id="fly_billing", replace_existing=True)
     return scheduler
 
 
@@ -238,3 +343,4 @@ async def run_all_now() -> None:
     """Trigger all pollers immediately — used by the /refresh endpoint."""
     await poll_flyio()
     await poll_railway()
+    await poll_fly_billing()

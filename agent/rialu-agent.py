@@ -241,6 +241,154 @@ def scan_repos() -> list:
     return repos
 
 
+# ── API code scanner ─────────────────────────────────────────────────────────
+
+# Patterns to detect external API usage in code
+API_PATTERNS = {
+    "anthropic": {
+        "provider": "Anthropic",
+        "patterns": [
+            r"import anthropic",
+            r"from anthropic",
+            r"ANTHROPIC_API_KEY",
+            r"api\.anthropic\.com",
+            r"claude-sonnet",
+            r"claude-opus",
+            r"claude-haiku",
+        ],
+    },
+    "google_translate": {
+        "provider": "Google",
+        "patterns": [
+            r"google\.cloud.*translate",
+            r"from google\.cloud import translate",
+            r"GOOGLE_TRANSLATE",
+            r"translation\.googleapis\.com",
+        ],
+    },
+    "azure_speech": {
+        "provider": "Microsoft",
+        "patterns": [
+            r"azure\.cognitiveservices\.speech",
+            r"speechsdk",
+            r"AZURE_SPEECH",
+            r"SPEECH_KEY",
+            r"cognitiveservices.*speech",
+        ],
+    },
+    "openai": {
+        "provider": "OpenAI",
+        "patterns": [
+            r"import openai",
+            r"from openai",
+            r"OPENAI_API_KEY",
+            r"api\.openai\.com",
+        ],
+    },
+    "fly_io": {
+        "provider": "Fly.io",
+        "patterns": [
+            r"FLY_API_TOKEN",
+            r"fly\.toml",
+            r"api\.fly\.io",
+            r"api\.machines\.dev",
+        ],
+    },
+    "railway": {
+        "provider": "Railway",
+        "patterns": [
+            r"RAILWAY_API_TOKEN",
+            r"railway\.app",
+            r"backboard\.railway",
+        ],
+    },
+    "cloudflare": {
+        "provider": "Cloudflare",
+        "patterns": [
+            r"CF_API_TOKEN",
+            r"CLOUDFLARE",
+            r"api\.cloudflare\.com",
+            r"cloudflare.*workers",
+        ],
+    },
+    "huggingface": {
+        "provider": "Hugging Face",
+        "patterns": [
+            r"huggingface",
+            r"from transformers",
+            r"HF_TOKEN",
+            r"huggingface\.co",
+        ],
+    },
+}
+
+# File extensions to scan
+SCAN_EXTENSIONS = {".py", ".js", ".ts", ".jsx", ".tsx", ".sh", ".env", ".toml", ".yaml", ".yml", ".json"}
+# Directories to skip
+SKIP_DIRS = {"node_modules", ".git", "__pycache__", "venv", ".venv", "env", ".eggs", "dist", "build"}
+
+
+def scan_repo_apis(repo_path: Path) -> list:
+    """Scan a repo for external API usage patterns. Returns list of detected APIs."""
+    detected = {}
+    try:
+        for root, dirs, files in os.walk(str(repo_path)):
+            # Skip irrelevant directories
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+            for fname in files:
+                ext = os.path.splitext(fname)[1]
+                if ext not in SCAN_EXTENSIONS:
+                    continue
+                fpath = os.path.join(root, fname)
+                try:
+                    with open(fpath, "r", errors="ignore") as f:
+                        content = f.read(50000)  # cap at 50KB per file
+                except (OSError, PermissionError):
+                    continue
+                content_lower = content.lower()
+                for api_id, api_info in API_PATTERNS.items():
+                    if api_id in detected:
+                        continue
+                    for pattern in api_info["patterns"]:
+                        if pattern.lower() in content_lower:
+                            detected[api_id] = {
+                                "api": api_id,
+                                "provider": api_info["provider"],
+                                "file": os.path.relpath(fpath, str(repo_path)),
+                            }
+                            break
+    except Exception:
+        pass
+    return list(detected.values())
+
+
+_api_scan_cache: dict = {}
+_api_scan_counter = 0
+
+API_SCAN_INTERVAL = 20  # only scan every Nth heartbeat (~10 min at 30s interval)
+
+
+def scan_all_repo_apis() -> dict:
+    """Scan all repos for API usage. Cached and only runs periodically."""
+    global _api_scan_counter
+    _api_scan_counter += 1
+    if _api_scan_counter % API_SCAN_INTERVAL != 1 and _api_scan_cache:
+        return _api_scan_cache
+
+    result = {}
+    for d in REPO_DIRS:
+        if not d.is_dir():
+            continue
+        for entry in sorted(d.iterdir()):
+            if not entry.is_dir() or not (entry / ".git").exists():
+                continue
+            apis = scan_repo_apis(entry)
+            if apis:
+                result[entry.name] = apis
+    _api_scan_cache.update(result)
+    return _api_scan_cache
+
+
 # ── tmux enumeration ─────────────────────────────────────────────────────────
 
 def _run_cmd(args: list, timeout: int = 5) -> str:
@@ -514,6 +662,7 @@ async def heartbeat_loop(ws):
                 "gpu_pct": get_gpu_pct(),
                 "processes": get_filtered_processes(),
                 "repos": scan_repos(),
+                "api_scan": scan_all_repo_apis(),
             }
             await ws.send(json.dumps(payload))
             log.info("Heartbeat sent — cpu=%.1f%% ram=%.1f%% repos=%d",
