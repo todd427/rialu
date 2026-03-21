@@ -367,7 +367,34 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
 <div id="keys" class="panel">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
     <span class="slabel" id="key-count">Key vault</span>
-    <button class="btn btn-acc" onclick="toggleKeyForm()">+ Add key</button>
+    <div style="display:flex;gap:6px">
+      <button class="btn" onclick="showVaultInit()" id="vault-init-btn" style="display:none">Init vault</button>
+      <button class="btn" onclick="showVaultRecover()" id="vault-recover-btn">Recover vault</button>
+      <button class="btn btn-acc" onclick="toggleKeyForm()">+ Add key</button>
+    </div>
+  </div>
+  <div id="vault-init-panel" style="display:none">
+    <div class="form-block" style="margin-bottom:10px">
+      <div class="dlabel" style="margin-bottom:6px;color:var(--acc3)">Initialize vault — generate master key + Shamir shares</div>
+      <div style="font-size:11px;color:var(--t2);margin-bottom:10px">This generates a new master key split into 3 shares (any 2 can recover it). The key and shares are shown once — save them immediately.</div>
+      <button class="btn btn-warn" onclick="doVaultInit()">Generate key + shares</button>
+      <button class="btn" onclick="document.getElementById('vault-init-panel').style.display='none'">Cancel</button>
+      <div id="vault-init-result" style="margin-top:10px"></div>
+    </div>
+  </div>
+  <div id="vault-recover-panel" style="display:none">
+    <div class="form-block" style="margin-bottom:10px">
+      <div class="dlabel" style="margin-bottom:6px;color:var(--acc3)">Recover master key from Shamir shares</div>
+      <div class="form-row">
+        <div class="form-field"><label>Share 1</label><input type="text" id="vr-share1" placeholder="Hex share..." class="mono"></div>
+        <div class="form-field"><label>Share 2</label><input type="text" id="vr-share2" placeholder="Hex share..." class="mono"></div>
+      </div>
+      <div style="display:flex;gap:7px">
+        <button class="btn btn-acc" onclick="doVaultRecover()">Recover</button>
+        <button class="btn" onclick="document.getElementById('vault-recover-panel').style.display='none'">Cancel</button>
+      </div>
+      <div id="vault-recover-result" style="margin-top:10px"></div>
+    </div>
   </div>
   <div class="form-block" id="key-form" style="display:none">
     <div class="dlabel" style="margin-bottom:9px;color:var(--acc3);font-size:11px">Add key</div>
@@ -1189,12 +1216,59 @@ function closeAllTerminals(){
 // ── keys ──────────────────────────────────────────────────────────────────
 async function loadKeys(){
   try {
-    const keys = await fetch('/api/keys').then(r => r.json());
+    const [keys, vault] = await Promise.all([
+      fetch('/api/keys').then(r => r.json()),
+      fetch('/api/vault/status').then(r => r.json()),
+    ]);
     document.getElementById('key-count').textContent = keys.length + ' key' + (keys.length !== 1 ? 's' : '') + ' stored';
+    document.getElementById('vault-init-btn').style.display = vault.initialized ? 'none' : 'inline-flex';
     renderKeys(keys);
   } catch(e){
     document.getElementById('key-tbody').innerHTML = '<tr><td colspan="6" class="empty">Could not load keys.</td></tr>';
   }
+}
+
+function showVaultInit(){ document.getElementById('vault-init-panel').style.display='block'; document.getElementById('vault-recover-panel').style.display='none'; }
+function showVaultRecover(){ document.getElementById('vault-recover-panel').style.display='block'; document.getElementById('vault-init-panel').style.display='none'; }
+
+async function doVaultInit(){
+  const resp = await fetch('/api/vault/init', {method:'POST'});
+  const el = document.getElementById('vault-init-result');
+  if (resp.status === 409){ el.innerHTML = '<div style="color:var(--warn);font-size:12px">Vault already initialized.</div>'; return; }
+  const data = await resp.json();
+  el.innerHTML = `
+    <div style="background:var(--bg);border-radius:6px;padding:12px;font-size:11px">
+      <div style="color:var(--warn);font-weight:600;margin-bottom:8px">SAVE THESE NOW — shown once only</div>
+      <div class="dlabel">Master key (set on Fly)</div>
+      <input type="text" value="${esc(data.master_key)}" readonly class="mono" style="width:100%;background:var(--bg3);border:0.5px solid var(--bd2);border-radius:4px;padding:6px;font-size:10px;color:var(--text);margin-bottom:8px" onclick="this.select()">
+      <div class="dlabel">Share 1 — password manager</div>
+      <input type="text" value="${esc(data.shares.share_1)}" readonly class="mono" style="width:100%;background:var(--bg3);border:0.5px solid var(--bd2);border-radius:4px;padding:6px;font-size:10px;color:var(--text);margin-bottom:6px" onclick="this.select()">
+      <div class="dlabel">Share 2 — USB drive</div>
+      <input type="text" value="${esc(data.shares.share_2)}" readonly class="mono" style="width:100%;background:var(--bg3);border:0.5px solid var(--bd2);border-radius:4px;padding:6px;font-size:10px;color:var(--text);margin-bottom:6px" onclick="this.select()">
+      <div class="dlabel">Share 3 — secure note</div>
+      <input type="text" value="${esc(data.shares.share_3)}" readonly class="mono" style="width:100%;background:var(--bg3);border:0.5px solid var(--bd2);border-radius:4px;padding:6px;font-size:10px;color:var(--text);margin-bottom:8px" onclick="this.select()">
+      <div style="color:var(--t3);font-size:10px">Any 2 of 3 shares can recover the master key. Set it with:<br><code>fly secrets set RIALU_VAULT_KEY=&lt;master_key&gt; --app rialu</code></div>
+    </div>`;
+}
+
+async function doVaultRecover(){
+  const s1 = document.getElementById('vr-share1').value.trim();
+  const s2 = document.getElementById('vr-share2').value.trim();
+  if (!s1 || !s2){ alert('Enter at least 2 shares'); return; }
+  const resp = await fetch('/api/vault/recover', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({shares: [s1, s2]}),
+  });
+  const el = document.getElementById('vault-recover-result');
+  if (!resp.ok){ el.innerHTML = `<div style="color:var(--err);font-size:12px">${esc((await resp.json()).detail)}</div>`; return; }
+  const data = await resp.json();
+  el.innerHTML = `
+    <div style="background:var(--bg);border-radius:6px;padding:12px;font-size:11px">
+      <div class="dlabel">Recovered master key</div>
+      <input type="text" value="${esc(data.master_key)}" readonly class="mono" style="width:100%;background:var(--bg3);border:0.5px solid var(--bd2);border-radius:4px;padding:6px;font-size:10px;color:var(--text);margin-bottom:6px" onclick="this.select()">
+      <div style="color:var(--t3);font-size:10px">Set with: <code>fly secrets set RIALU_VAULT_KEY=&lt;key&gt; --app rialu</code></div>
+    </div>`;
 }
 
 function renderKeys(keys){

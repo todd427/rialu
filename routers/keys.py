@@ -6,6 +6,8 @@ The actual key value is only returned via POST /api/keys/{id}/reveal,
 which logs the access in key_audit_log.
 """
 
+import os
+import secrets
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -13,6 +15,7 @@ from pydantic import BaseModel
 
 from db import db, row_to_dict
 from key_vault import encrypt_key, decrypt_key, key_hint
+from shamir import split_hex, combine_hex
 
 router = APIRouter(prefix="/api", tags=["keys"])
 
@@ -176,3 +179,82 @@ def key_audit(key_id: int):
             (key_id,),
         ).fetchall()
     return [row_to_dict(r) for r in rows]
+
+
+# ── Vault management ────────────────────────────────────────────────────────
+
+@router.get("/vault/status")
+def vault_status():
+    """Check if the vault is initialized (master key is set)."""
+    key = os.environ.get("RIALU_VAULT_KEY", "")
+    with db() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM key_store").fetchone()[0]
+    return {
+        "initialized": bool(key),
+        "key_count": count,
+    }
+
+
+@router.post("/vault/init")
+def vault_init():
+    """
+    Generate a new vault master key, split into 3 Shamir shares (2 needed
+    to recover). Returns the shares ONCE — they are never stored.
+
+    The master key is returned so it can be set as RIALU_VAULT_KEY.
+    After setting it, the shares are your backup.
+    """
+    current = os.environ.get("RIALU_VAULT_KEY", "")
+    with db() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM key_store").fetchone()[0]
+    if current and count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Vault already initialized with stored keys. Use /vault/rotate to change the master key.",
+        )
+
+    # Generate a 32-byte (256-bit) master key
+    master_key = secrets.token_hex(32)
+    shares = split_hex(master_key, n=3, k=2)
+
+    return {
+        "master_key": master_key,
+        "shares": {
+            "share_1": shares[0],
+            "share_2": shares[1],
+            "share_3": shares[2],
+        },
+        "instructions": [
+            "Set the master key: fly secrets set RIALU_VAULT_KEY=<master_key> --app rialu",
+            "Store each share in a DIFFERENT location:",
+            "  Share 1 → Password manager",
+            "  Share 2 → USB drive or printed",
+            "  Share 3 → Second password manager or secure note",
+            "Any 2 of 3 shares can recover the master key.",
+            "The master key and shares are shown ONCE and never stored by Rialú.",
+        ],
+    }
+
+
+class RecoverIn(BaseModel):
+    shares: list[str]
+
+
+@router.post("/vault/recover")
+def vault_recover(payload: RecoverIn):
+    """Reconstruct the master key from 2 or more Shamir shares."""
+    if len(payload.shares) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 shares")
+    try:
+        master_key = combine_hex(payload.shares)
+        # Verify it's a valid 32-byte hex key
+        if len(master_key) != 64:
+            raise ValueError("Invalid key length")
+        bytes.fromhex(master_key)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Recovery failed: {e}")
+
+    return {
+        "master_key": master_key,
+        "instructions": "Set this as your vault key: fly secrets set RIALU_VAULT_KEY=<master_key> --app rialu",
+    }
