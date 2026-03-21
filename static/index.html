@@ -508,10 +508,67 @@ async function loadProjectDetail(id){
           </div>`).join('')
         : '<div class="empty" style="padding:8px 0">No milestones yet.</div>'}
     </div>
+    <div id="edit-form-${id}" style="display:none">
+      <div class="form-block" style="margin-bottom:10px">
+        <div class="dlabel" style="margin-bottom:9px;color:var(--acc3);font-size:11px">Edit project</div>
+        <div class="form-row">
+          <div class="form-field" style="flex:2"><label>Name</label><input type="text" id="ef-name-${id}" value="${esc(p.name)}"></div>
+          <div class="form-field"><label>Status</label>
+            <select id="ef-status-${id}">
+              ${['research','development','running','deployed','paused','shipped'].map(s => `<option${s===p.status?' selected':''}>${s}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-field"><label>Machine</label>
+            <select id="ef-machine-${id}">
+              <option value="">—</option>
+              ${['rose','iris','daisy','lava'].map(m => `<option${m===p.machine?' selected':''}>${m}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-field" style="flex:2"><label>Repo URL</label><input type="text" id="ef-repo-${id}" value="${esc(p.repo_url||'')}"></div>
+          <div class="form-field"><label>Phase</label><input type="text" id="ef-phase-${id}" value="${esc(p.phase||'')}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-field"><label>Notes</label><textarea id="ef-notes-${id}">${esc(p.notes||'')}</textarea></div>
+        </div>
+        <div style="display:flex;gap:7px">
+          <button class="btn btn-acc" onclick="submitEditProject(${id})">Save</button>
+          <button class="btn" onclick="document.getElementById('edit-form-${id}').style.display='none'">Cancel</button>
+          <button class="btn btn-warn" onclick="deleteProject(${id})" style="margin-left:auto">Delete project</button>
+        </div>
+      </div>
+    </div>
     <div class="detail-actions">
       <button class="btn" onclick="openLogForProject(${id}, '${esc(p.name)}')">Log session</button>
       <button class="btn" onclick="addMilestonePrompt(${id})">Add milestone</button>
+      <button class="btn" onclick="document.getElementById('edit-form-${id}').style.display='block'">Edit project</button>
     </div>`;
+}
+
+async function submitEditProject(id){
+  const body = {
+    name: document.getElementById('ef-name-'+id).value.trim(),
+    status: document.getElementById('ef-status-'+id).value,
+    machine: document.getElementById('ef-machine-'+id).value || null,
+    repo_url: document.getElementById('ef-repo-'+id).value || null,
+    phase: document.getElementById('ef-phase-'+id).value || null,
+    notes: document.getElementById('ef-notes-'+id).value || null,
+  };
+  await fetch(`/api/projects/${id}`, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  });
+  loadedTabs.delete('projects');
+  await loadProjects();
+}
+
+async function deleteProject(id){
+  if (!confirm('Delete this project? This cannot be undone.')) return;
+  await fetch(`/api/projects/${id}`, {method:'DELETE'});
+  loadedTabs.delete('projects');
+  await loadProjects();
 }
 
 async function toggleMilestone(mid, pid){
