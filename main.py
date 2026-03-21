@@ -48,6 +48,25 @@ app = FastAPI(
     redoc_url=None,
 )
 
+# ── force canonical hostname ──────────────────────────────────────────────────
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import RedirectResponse
+
+
+class CanonicalHostMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        host = request.headers.get("host", "")
+        # Allow agent WebSocket connections on any hostname
+        if request.url.path.startswith("/ws/agent") or request.url.path.startswith("/api/agent/"):
+            return await call_next(request)
+        if host and "rialu.ie" not in host and not TEST_MODE:
+            return RedirectResponse(f"https://rialu.ie{request.url.path}", status_code=301)
+        return await call_next(request)
+
+
+app.add_middleware(CanonicalHostMiddleware)
+
 # ── routers ──────────────────────────────────────────────────────────────────
 
 app.include_router(projects.router)
