@@ -125,6 +125,17 @@ class AgentHub:
 
         if msg_type == "heartbeat":
             await self._store_heartbeat(machine, data)
+            # Auto-generate worklog from git commits
+            repos = data.get("repos", [])
+            if any(r.get("recent_commits") for r in repos):
+                try:
+                    from commit_worklog import process_commits_for_worklog
+                    summaries = process_commits_for_worklog(repos)
+                    for s in summaries:
+                        log.info("Worklog %s: project=%s date=%s min=%d",
+                                 s["action"], s["project_id"], s["date"], s["minutes"])
+                except Exception:
+                    log.exception("Error processing commits for worklog")
 
         elif msg_type == "tmux_list":
             self.tmux_cache[machine] = data.get("sessions", [])

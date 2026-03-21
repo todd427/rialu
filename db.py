@@ -209,6 +209,8 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_worklog_project ON worklog(project_id)",
     "CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones(project_id)",
     "CREATE INDEX IF NOT EXISTS idx_heartbeats_machine ON machine_heartbeats(machine_name, received_at)",
+    # 004 — worklog auto-git lookup
+    "CREATE INDEX IF NOT EXISTS idx_worklog_autogit ON worklog(project_id, date, session_type)",
 ]
 
 

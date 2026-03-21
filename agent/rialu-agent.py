@@ -67,6 +67,8 @@ def load_config() -> dict:
 CONFIG = load_config()
 KNOWN_PROJECTS = CONFIG.get("projects", [])
 REPO_DIRS = [Path(p) for p in CONFIG.get("repo_dirs", [])]
+GIT_AUTHOR = CONFIG.get("git_author", "todd")
+COMMIT_LOOKBACK_HOURS = CONFIG.get("commit_lookback_hours", 24)
 
 # Claude Code pause patterns
 CLAUDE_PATTERNS = [
@@ -162,6 +164,29 @@ def _run_git(repo_path: Path, args: list) -> str:
         return ""
 
 
+def _get_recent_commits(repo_path: Path) -> list:
+    """Get commits from the last COMMIT_LOOKBACK_HOURS hours by GIT_AUTHOR."""
+    raw = _run_git(repo_path, [
+        "log",
+        f"--since={COMMIT_LOOKBACK_HOURS} hours ago",
+        f"--author={GIT_AUTHOR}",
+        "--format=%H|%s|%aI",
+        "--no-merges",
+    ])
+    if not raw:
+        return []
+    commits = []
+    for line in raw.strip().split("\n"):
+        parts = line.split("|", 2)
+        if len(parts) == 3:
+            commits.append({
+                "hash": parts[0][:7],
+                "message": parts[1],
+                "timestamp": parts[2],
+            })
+    return commits
+
+
 def scan_repos() -> list:
     if not REPO_DIRS:
         return []
@@ -204,6 +229,7 @@ def scan_repos() -> list:
             "behind": behind,
             "last_commit": last_commit,
             "last_message": last_message,
+            "recent_commits": _get_recent_commits(entry),
         })
     return repos
 
