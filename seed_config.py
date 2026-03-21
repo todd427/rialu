@@ -13,6 +13,42 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from db import init_db, db
 
+# Domain pricing by TLD (annual, GBP)
+DOMAIN_PRICING_GBP = {
+    ".ie":    5.09,   # €5.99
+    ".irish": 5.09,   # €5.99
+    ".eu":    5.09,   # €5.99
+    ".com":   10.20,
+    ".uk":    6.80,
+    ".us":    10.20,
+    ".org":   10.20,
+}
+
+
+def _load_domains():
+    """Read domains.txt and return budget entries."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "domains.txt")
+    if not os.path.exists(path):
+        return []
+    entries = []
+    with open(path) as f:
+        for line in f:
+            domain = line.strip()
+            if not domain:
+                continue
+            # Find matching TLD
+            cost = None
+            for tld, price in DOMAIN_PRICING_GBP.items():
+                if domain.endswith(tld):
+                    cost = price
+                    break
+            if cost is None:
+                cost = 10.20  # default
+            entries.append(("domains", domain, cost, "annual"))
+    return entries
+
+
 BUDGET = [
     ("fly.io",       "mnemos",           8.40,  "monthly"),
     ("fly.io",       "git-mcp-foxxelabs",0.00,  "monthly"),
@@ -97,7 +133,8 @@ def seed():
 
     with db() as conn:
         # budget
-        for platform, service, cost, period in BUDGET:
+        all_budget = BUDGET + _load_domains()
+        for platform, service, cost, period in all_budget:
             conn.execute(
                 """INSERT OR IGNORE INTO budget (platform, service_name, cost_gbp, period)
                    VALUES (?, ?, ?, ?)""",
