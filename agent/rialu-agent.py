@@ -54,10 +54,17 @@ def ws_url() -> str:
 
 
 def load_config() -> dict:
-    for path in [Path.home() / ".rialu-agent.json", Path("/etc/rialu-agent.json")]:
+    """Load config. Search order: alongside this script, /etc/, home dir."""
+    script_dir = Path(__file__).parent
+    for path in [
+        script_dir / "rialu-agent.json",
+        Path("/etc/rialu-agent.json"),
+        Path.home() / ".rialu-agent.json",
+    ]:
         if path.exists():
             try:
                 with open(path) as f:
+                    log.info("Config loaded from %s", path)
                     return json.load(f)
             except Exception as e:
                 log.warning("Failed to load config from %s: %s", path, e)

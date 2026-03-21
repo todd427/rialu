@@ -2,17 +2,11 @@
   "projects": [
     "mnemos",
     "rialu",
-    "sceal",
-    "anseo",
-    "radharc",
-    "git-mcp",
-    "glor",
-    "sionach",
-    "leargas",
-    "aislinge",
-    "foxxelabs-astro"
+    "sceal"
   ],
   "repo_dirs": [
     "/home/Projects"
-  ]
+  ],
+  "git_author": "Todd McCaffrey",
+  "commit_lookback_hours": 24
 }

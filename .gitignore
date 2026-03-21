@@ -33,8 +33,9 @@ htmlcov/
 *.swp
 *~
 
-# Agent secrets
+# Agent secrets + machine-specific config
 agent/rialu-agent.env
+agent/rialu-agent.json
 
 # Fly.io
 .fly/
