@@ -1282,7 +1282,7 @@ function renderKeys(keys){
       <td class="mono" style="font-size:10px">${esc(k.env_var||'—')}</td>
       <td style="color:var(--t2);font-size:11px">${esc(k.notes||'')}</td>
       <td style="text-align:right">
-        <button class="btn" onclick="revealKey(${k.id})" style="font-size:9px;padding:2px 6px">Reveal</button>
+        <button class="btn" onclick="copyKey(this,${k.id})" style="font-size:9px;padding:2px 6px">Copy</button>
         <button class="btn" onclick="deleteKey(${k.id})" style="font-size:9px;padding:2px 6px;color:var(--err)">Delete</button>
       </td>
     </tr>`).join('');
@@ -1311,27 +1311,14 @@ async function submitKey(){
   loadKeys();
 }
 
-async function revealKey(id){
-  if (!confirm('Reveal this key? This will be logged.')) return;
+async function copyKey(btn, id){
+  const orig = btn.textContent;
+  btn.textContent = '...';
   const resp = await fetch(`/api/keys/${id}/reveal`, {method:'POST'});
   const data = await resp.json();
-  const val = data.value;
-  // Show in a temporary prompt-style display
-  const el = document.createElement('div');
-  el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg2);border:1px solid var(--bd2);border-radius:8px;padding:20px;z-index:200;max-width:600px;width:90%';
-  el.innerHTML = `
-    <div class="dlabel" style="margin-bottom:8px">${esc(data.name)}</div>
-    <input type="text" value="${esc(val)}" readonly style="width:100%;background:var(--bg);border:0.5px solid var(--bd2);border-radius:5px;padding:8px;font-family:monospace;font-size:12px;color:var(--text);margin-bottom:10px" onclick="this.select()">
-    <div style="display:flex;gap:7px">
-      <button class="btn" onclick="navigator.clipboard.writeText('${esc(val).replace(/'/g,"\\'")}');this.textContent='Copied!'">Copy</button>
-      <button class="btn" onclick="this.parentElement.parentElement.remove();document.getElementById('key-backdrop').remove()">Close</button>
-    </div>`;
-  const backdrop = document.createElement('div');
-  backdrop.id = 'key-backdrop';
-  backdrop.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:199';
-  backdrop.onclick = () => { el.remove(); backdrop.remove(); };
-  document.body.appendChild(backdrop);
-  document.body.appendChild(el);
+  await navigator.clipboard.writeText(data.value);
+  btn.textContent = 'Copied!';
+  setTimeout(() => { btn.textContent = orig; }, 1500);
 }
 
 async function deleteKey(id){
