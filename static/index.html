@@ -193,6 +193,7 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
   <div class="ntab" data-p="worklog">Work log</div>
   <div class="ntab" data-p="machines">Machines</div>
   <div class="ntab" data-p="deployments">Deployments</div>
+  <div class="ntab" data-p="sentinel">Sentinel</div>
   <div class="ntab" data-p="budget">Budget &amp; APIs</div>
   <div class="ntab" data-p="mcp">MCP</div>
   <div class="ntab" data-p="keys">Keys</div>
@@ -351,6 +352,31 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
   </table>
 </div>
 
+<!-- SENTINEL -->
+<div id="sentinel" class="panel">
+  <div class="row"><span class="slabel">Threat intelligence</span><button class="btn" onclick="refreshSentinel()">↻ Refresh</button></div>
+  <div class="mcards">
+    <div class="mcard"><div class="mclabel">Events (24h)</div><div class="mcval" id="st-events-24h">—</div></div>
+    <div class="mcard"><div class="mclabel">Events (7d)</div><div class="mcval" id="st-events-7d">—</div></div>
+    <div class="mcard"><div class="mclabel">Reports sent</div><div class="mcval" style="color:var(--warn)" id="st-reports">—</div></div>
+    <div class="mcard"><div class="mclabel">IPs blocked</div><div class="mcval" style="color:var(--err)" id="st-blocked">—</div></div>
+  </div>
+  <div style="display:flex;gap:12px;margin-bottom:14px">
+    <div style="flex:1">
+      <div class="slabel" style="margin-bottom:6px">Top offenders (24h)</div>
+      <table class="tbl"><thead><tr><th>IP</th><th style="width:60px">Events</th></tr></thead>
+      <tbody id="st-offenders"><tr><td colspan="2" class="loading">—</td></tr></tbody></table>
+    </div>
+    <div style="flex:1">
+      <div class="slabel" style="margin-bottom:6px">By project (24h)</div>
+      <table class="tbl"><thead><tr><th>Project</th><th style="width:60px">Events</th></tr></thead>
+      <tbody id="st-projects"><tr><td colspan="2" class="loading">—</td></tr></tbody></table>
+    </div>
+  </div>
+  <div class="slabel" style="margin-bottom:6px">Blocklist <span id="st-bl-count" style="color:var(--t2)"></span></div>
+  <div id="st-blocklist" style="font-family:monospace;font-size:11px;color:var(--t2);max-height:150px;overflow-y:auto">—</div>
+</div>
+
 <!-- BUDGET & APIs -->
 <div id="budget" class="panel">
   <div class="row"><span class="slabel">Platform costs</span><button class="btn" onclick="refreshBudget()">↻ Refresh</button></div>
@@ -480,6 +506,7 @@ const TAB_LOADERS = {
   deployments: loadDeployments,
   budget: loadBudget,
   machines: loadMachines,
+  sentinel: loadSentinel,
   mcp: loadMcp,
   keys: loadKeys,
 };
@@ -953,6 +980,55 @@ async function refreshMcp(){
   btn.textContent = '↻ Checking…';
   btn.disabled = true;
   await loadMcp();
+  btn.textContent = orig;
+  btn.disabled = false;
+}
+
+// ── sentinel ──────────────────────────────────────────────────────────────
+async function loadSentinel(){
+  const [overview, blocklist] = await Promise.all([
+    fetch('/api/sentinel/overview').then(r => r.json()).catch(() => null),
+    fetch('/api/sentinel/blocklist').then(r => r.json()).catch(() => ({count:0,ips:[]})),
+  ]);
+  if (!overview || !overview.stats) {
+    document.getElementById('st-events-24h').textContent = '—';
+    return;
+  }
+  const s = overview.stats;
+  document.getElementById('st-events-24h').textContent = (s.events?.['24h'] ?? 0).toLocaleString();
+  document.getElementById('st-events-7d').textContent = (s.events?.['7d'] ?? 0).toLocaleString();
+  document.getElementById('st-reports').textContent = (s.reports_sent ?? 0).toLocaleString();
+  document.getElementById('st-blocked').textContent = (s.ips_blocked ?? 0).toLocaleString();
+
+  const otb = document.getElementById('st-offenders');
+  if (s.top_offenders && s.top_offenders.length) {
+    otb.innerHTML = s.top_offenders.map(o => `<tr>
+      <td class="mono" style="font-size:11px">${esc(o.ip)}</td>
+      <td class="mono">${o.events}</td>
+    </tr>`).join('');
+  } else { otb.innerHTML = '<tr><td colspan="2" class="empty">No events</td></tr>'; }
+
+  const ptb = document.getElementById('st-projects');
+  if (s.by_project && Object.keys(s.by_project).length) {
+    ptb.innerHTML = Object.entries(s.by_project).sort((a,b) => b[1]-a[1]).map(([p,c]) => `<tr>
+      <td><span class="pill info" style="font-size:9px">${esc(p)}</span></td>
+      <td class="mono">${c}</td>
+    </tr>`).join('');
+  } else { ptb.innerHTML = '<tr><td colspan="2" class="empty">No events</td></tr>'; }
+
+  document.getElementById('st-bl-count').textContent = `(${blocklist.count} IPs)`;
+  const blEl = document.getElementById('st-blocklist');
+  if (blocklist.ips && blocklist.ips.length) {
+    blEl.innerHTML = blocklist.ips.map(ip => `<span style="display:inline-block;padding:2px 6px;margin:2px;background:var(--err2);color:var(--err);border-radius:4px;font-size:10px">${esc(ip)}</span>`).join('');
+  } else { blEl.textContent = 'Blocklist empty'; }
+}
+
+async function refreshSentinel(){
+  const btn = document.querySelector('#sentinel .btn');
+  const orig = btn.textContent;
+  btn.textContent = '↻ Loading…';
+  btn.disabled = true;
+  await loadSentinel();
   btn.textContent = orig;
   btn.disabled = false;
 }
