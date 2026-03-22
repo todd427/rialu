@@ -109,6 +109,13 @@ def create_entry(w: WorklogIn):
     return row_to_dict(row)
 
 
+@router.post("/refresh-loc")
+async def refresh_loc():
+    from poller import poll_github_loc
+    await poll_github_loc()
+    return {"status": "ok", "message": "GitHub LOC refreshed"}
+
+
 @router.delete("/{entry_id}", status_code=204)
 def delete_entry(entry_id: int):
     with db() as conn:

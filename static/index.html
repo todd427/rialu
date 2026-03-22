@@ -261,7 +261,10 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
 <div id="worklog" class="panel">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
     <span class="slabel">Sessions</span>
-    <button class="btn btn-acc" onclick="toggleLogForm()">+ Log session</button>
+    <div style="display:flex;gap:6px">
+      <button class="btn" onclick="refreshLoc()">↻ LOC</button>
+      <button class="btn btn-acc" onclick="toggleLogForm()">+ Log session</button>
+    </div>
   </div>
   <div class="form-block green" id="log-form" style="display:none">
     <div class="slabel" style="margin-bottom:9px;color:var(--ok)">Log session</div>
@@ -805,6 +808,17 @@ function populateProjectDropdown(projects){
 }
 
 function toggleLogForm(){ const f = document.getElementById('log-form'); f.style.display = f.style.display==='none'?'block':'none'; }
+
+async function refreshLoc(){
+  const btn = document.querySelector('#worklog .btn');
+  const orig = btn.textContent;
+  btn.textContent = '↻ Pulling…';
+  btn.disabled = true;
+  await fetch('/api/worklog/refresh-loc', {method:'POST'});
+  await loadWorklog();
+  btn.textContent = orig;
+  btn.disabled = false;
+}
 
 function openLogForProject(pid, name){
   document.querySelectorAll('.ntab').forEach(t => t.classList.remove('on'));
