@@ -17,6 +17,8 @@ class WorklogIn(BaseModel):
     session_type: str = "code"
     notes: Optional[str] = None
     date: Optional[str] = None  # ISO date string; defaults to today
+    lines_added: int = 0
+    lines_removed: int = 0
 
 
 @router.get("/stats")
@@ -38,6 +40,12 @@ def worklog_stats():
                FROM worklog w JOIN projects p ON p.id = w.project_id
                WHERE w.date >= date('now', '-6 days')
                GROUP BY w.project_id ORDER BY total DESC LIMIT 1"""
+        ).fetchone()
+
+        loc_week = conn.execute(
+            """SELECT COALESCE(SUM(lines_added), 0) as added,
+                      COALESCE(SUM(lines_removed), 0) as removed
+               FROM worklog WHERE date >= date('now', '-6 days')"""
         ).fetchone()
 
         streak = conn.execute(
@@ -63,6 +71,8 @@ def worklog_stats():
         "sessions_7d": sessions_7d,
         "top_project": dict(top_project) if top_project else None,
         "streak_days": streak["streak"] if streak else 0,
+        "lines_added_week": loc_week["added"],
+        "lines_removed_week": loc_week["removed"],
     }
 
 
@@ -82,9 +92,9 @@ def list_worklog(limit: int = 50):
 def create_entry(w: WorklogIn):
     with db() as conn:
         cur = conn.execute(
-            """INSERT INTO worklog (project_id, date, minutes, session_type, notes)
-               VALUES (?, COALESCE(?, date('now')), ?, ?, ?)""",
-            (w.project_id, w.date, w.minutes, w.session_type, w.notes),
+            """INSERT INTO worklog (project_id, date, minutes, session_type, notes, lines_added, lines_removed)
+               VALUES (?, COALESCE(?, date('now')), ?, ?, ?, ?, ?)""",
+            (w.project_id, w.date, w.minutes, w.session_type, w.notes, w.lines_added, w.lines_removed),
         )
         conn.execute(
             "UPDATE projects SET updated_at = datetime('now') WHERE id = ?",

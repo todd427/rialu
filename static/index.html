@@ -292,11 +292,12 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
     <div class="mcard"><div class="mclabel">This week</div><div class="mcval" id="s-week">—</div><div class="mcsub">minutes logged</div></div>
     <div class="mcard"><div class="mclabel">Sessions</div><div class="mcval" id="s-sessions">—</div><div class="mcsub">last 7 days</div></div>
     <div class="mcard"><div class="mclabel">Top project</div><div class="mcval" id="s-top" style="font-size:14px">—</div><div class="mcsub" id="s-top-min"></div></div>
+    <div class="mcard"><div class="mclabel">Lines changed</div><div class="mcval" id="s-loc">—</div><div class="mcsub" id="s-loc-detail">this week</div></div>
     <div class="mcard"><div class="mclabel">Streak</div><div class="mcval" id="s-streak">—</div><div class="mcsub">days</div></div>
   </div>
   <div style="background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;overflow:hidden">
     <table class="wltbl">
-      <thead><tr><th style="width:70px">Date</th><th style="width:90px">Project</th><th style="width:60px">Type</th><th style="width:40px">Min</th><th>Notes</th><th style="width:30px"></th></tr></thead>
+      <thead><tr><th style="width:70px">Date</th><th style="width:90px">Project</th><th style="width:60px">Type</th><th style="width:40px">Min</th><th style="width:70px">LOC</th><th>Notes</th><th style="width:30px"></th></tr></thead>
       <tbody id="wl-tbody"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
     </table>
   </div>
@@ -767,22 +768,29 @@ async function loadWorklog(){
   document.getElementById('s-sessions').textContent = stats.sessions_7d ?? '—';
   document.getElementById('s-top').textContent = stats.top_project?.name ?? '—';
   document.getElementById('s-top-min').textContent = stats.top_project ? stats.top_project.total + ' min' : '';
+  const locTotal = (stats.lines_added_week || 0) + (stats.lines_removed_week || 0);
+  document.getElementById('s-loc').textContent = locTotal ? locTotal.toLocaleString() : '—';
+  document.getElementById('s-loc-detail').textContent = locTotal ? `+${(stats.lines_added_week||0).toLocaleString()} / -${(stats.lines_removed_week||0).toLocaleString()}` : 'this week';
   document.getElementById('s-streak').textContent = stats.streak_days ?? '—';
   renderWorklogTable(entries);
 }
 
 function renderWorklogTable(entries){
   const tbody = document.getElementById('wl-tbody');
-  if (!entries.length){ tbody.innerHTML = '<tr><td colspan="6" class="empty">No sessions logged yet.</td></tr>'; return; }
-  tbody.innerHTML = entries.map(e => `
-    <tr>
+  if (!entries.length){ tbody.innerHTML = '<tr><td colspan="7" class="empty">No sessions logged yet.</td></tr>'; return; }
+  tbody.innerHTML = entries.map(e => {
+    const loc = (e.lines_added || 0) + (e.lines_removed || 0);
+    const locStr = loc ? `<span style="color:var(--ok)">+${e.lines_added||0}</span> <span style="color:var(--err)">-${e.lines_removed||0}</span>` : '';
+    return `<tr>
       <td class="mono">${esc(e.date)}</td>
       <td><span class="pill info" style="font-size:9px">${esc(e.project_name||'?')}</span></td>
       <td style="color:var(--t3);font-size:10px">${esc(e.session_type)}</td>
       <td class="mono">${e.minutes}</td>
+      <td class="mono" style="font-size:10px">${locStr}</td>
       <td style="font-size:11px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.notes||'')}</td>
       <td><span style="cursor:pointer;color:var(--t3);font-size:11px" onclick="deleteWlEntry(${e.id})">✕</span></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 async function deleteWlEntry(id){

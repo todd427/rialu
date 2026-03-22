@@ -235,6 +235,9 @@ MIGRATIONS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_key_audit ON key_audit_log(key_id, performed_at)",
+    # 007 — lines of code in worklog
+    "ALTER TABLE worklog ADD COLUMN lines_added INTEGER DEFAULT 0",
+    "ALTER TABLE worklog ADD COLUMN lines_removed INTEGER DEFAULT 0",
     # 006 — anthropic token usage (from CSV export)
     """
     CREATE TABLE IF NOT EXISTS anthropic_usage (
@@ -261,7 +264,11 @@ def init_db() -> None:
     """Run all migrations idempotently. Safe to call on every startup."""
     with db() as conn:
         for sql in MIGRATIONS:
-            conn.execute(sql)
+            try:
+                conn.execute(sql)
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower():
+                    raise
 
 
 def row_to_dict(row: sqlite3.Row) -> dict:

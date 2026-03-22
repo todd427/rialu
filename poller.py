@@ -330,12 +330,112 @@ def _upsert_budget(conn, platform, service_name, cost_gbp, period, notes=None):
         )
 
 
+# ── GitHub LOC ────────────────────────────────────────────────────────────────
+
+GITHUB_TOKEN = os.environ.get("GITHUB_PAT", "")
+GITHUB_USER  = os.environ.get("GITHUB_USER", "todd427")
+GITHUB_API   = "https://api.github.com"
+
+
+async def poll_github_loc() -> None:
+    """
+    Fetch commit stats from GitHub for all projects with a repo_url.
+    Upserts worklog entries with lines_added/lines_removed per day per project.
+    Only looks at the last 7 days to stay within API limits.
+    """
+    if not GITHUB_TOKEN:
+        log.debug("GITHUB_PAT not set — skipping GitHub LOC poll")
+        return
+    try:
+        with db() as conn:
+            projects = conn.execute(
+                "SELECT id, name, repo_url FROM projects WHERE repo_url IS NOT NULL AND repo_url != ''"
+            ).fetchall()
+
+        if not projects:
+            return
+
+        headers = {
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json",
+        }
+
+        async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+            for proj in projects:
+                repo_url = proj["repo_url"]
+                # Extract owner/repo from URL
+                # Handles https://github.com/owner/repo or github.com/owner/repo
+                parts = repo_url.rstrip("/").split("/")
+                if len(parts) < 2:
+                    continue
+                owner, repo = parts[-2], parts[-1]
+                repo = repo.replace(".git", "")
+
+                try:
+                    # Get commits for last 7 days by this user
+                    since = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=7)).strftime("%Y-%m-%dT00:00:00Z")
+                    resp = await client.get(
+                        f"{GITHUB_API}/repos/{owner}/{repo}/commits",
+                        params={"author": GITHUB_USER, "since": since, "per_page": 100},
+                    )
+                    if resp.status_code != 200:
+                        continue
+                    commits = resp.json()
+
+                    # Group commits by date and sum stats
+                    daily_stats = {}
+                    for c in commits:
+                        commit_date = (c.get("commit", {}).get("author", {}).get("date") or "")[:10]
+                        if not commit_date:
+                            continue
+
+                        # Fetch individual commit for stats (additions/deletions)
+                        cr = await client.get(f"{GITHUB_API}/repos/{owner}/{repo}/commits/{c['sha']}")
+                        if cr.status_code != 200:
+                            continue
+                        stats = cr.json().get("stats", {})
+                        if commit_date not in daily_stats:
+                            daily_stats[commit_date] = {"added": 0, "removed": 0}
+                        daily_stats[commit_date]["added"] += stats.get("additions", 0)
+                        daily_stats[commit_date]["removed"] += stats.get("deletions", 0)
+
+                    # Upsert into worklog
+                    with db() as conn:
+                        for date_str, stats in daily_stats.items():
+                            existing = conn.execute(
+                                """SELECT id FROM worklog
+                                   WHERE project_id = ? AND date = ? AND session_type = 'code'""",
+                                (proj["id"], date_str),
+                            ).fetchone()
+                            if existing:
+                                conn.execute(
+                                    """UPDATE worklog SET lines_added = ?, lines_removed = ?
+                                       WHERE id = ?""",
+                                    (stats["added"], stats["removed"], existing["id"]),
+                                )
+                            else:
+                                conn.execute(
+                                    """INSERT INTO worklog (project_id, date, minutes, session_type, notes, lines_added, lines_removed)
+                                       VALUES (?, ?, 0, 'code', 'auto: git LOC', ?, ?)""",
+                                    (proj["id"], date_str, stats["added"], stats["removed"]),
+                                )
+
+                except Exception as exc:
+                    log.warning(f"[github-loc] {proj['name']}: {exc}")
+                    continue
+
+        log.info(f"[github-loc] polled {len(projects)} projects")
+    except Exception as exc:
+        log.warning(f"[github-loc] poll failed: {exc}")
+
+
 # ── scheduler setup ──────────────────────────────────────────────────────────
 
 def setup_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(poll_flyio,       "interval", seconds=60,   id="fly",         replace_existing=True)
     scheduler.add_job(poll_railway,     "interval", seconds=60,   id="railway",     replace_existing=True)
     scheduler.add_job(poll_fly_billing, "interval", seconds=3600, id="fly_billing", replace_existing=True)
+    scheduler.add_job(poll_github_loc,  "interval", seconds=21600, id="github_loc", replace_existing=True)
     return scheduler
 
 
