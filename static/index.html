@@ -946,9 +946,9 @@ async function loadBudget(){
     fetch('/api/usage/by-key').then(r => r.json()).catch(() => []),
   ]);
   // Summary cards
-  const fly    = budget.filter(b => b.platform === 'fly.io' && b.active).reduce((a,b) => a+b.cost_eur, 0);
-  const rail   = budget.filter(b => b.platform === 'railway' && b.active).reduce((a,b) => a+b.cost_eur, 0);
-  const cf     = budget.filter(b => b.platform === 'cloudflare' && b.active).reduce((a,b) => a+b.cost_eur, 0);
+  const fly    = budget.filter(b => b.platform === 'fly.io' && b.active).reduce((a,b) => a+b.cost_gbp, 0);
+  const rail   = budget.filter(b => b.platform === 'railway' && b.active).reduce((a,b) => a+b.cost_gbp, 0);
+  const cf     = budget.filter(b => b.platform === 'cloudflare' && b.active).reduce((a,b) => a+b.cost_gbp, 0);
   document.getElementById('b-fly').textContent = '€' + fly.toFixed(2);
   document.getElementById('b-rail').textContent = '€' + rail.toFixed(2);
   document.getElementById('b-cf').textContent = '€' + cf.toFixed(2);
