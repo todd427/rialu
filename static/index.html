@@ -349,6 +349,7 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
 
 <!-- BUDGET & APIs -->
 <div id="budget" class="panel">
+  <div class="row"><span class="slabel">Platform costs</span><button class="btn" onclick="refreshBudget()">↻ Refresh</button></div>
   <div class="mcards">
     <div class="mcard"><div class="mclabel">Fly.io / month</div><div class="mcval" id="b-fly">—</div></div>
     <div class="mcard"><div class="mclabel">Railway / month</div><div class="mcval" id="b-rail">—</div></div>
@@ -939,6 +940,17 @@ async function loadBudget(){
       <td><span class="pill gray" style="font-size:9px">manual</span></td>
       <td><span class="pill ${a.active ? 'ok':'gray'}"><span class="dot"></span>${a.active ? 'active':'inactive'}</span></td>
     </tr>`).join('');
+}
+
+async function refreshBudget(){
+  const btn = document.querySelector('#budget .btn');
+  const orig = btn.textContent;
+  btn.textContent = '↻ Refreshing…';
+  btn.disabled = true;
+  await fetch('/api/budget/refresh', {method:'POST'});
+  await loadBudget();
+  btn.textContent = orig;
+  btn.disabled = false;
 }
 
 // ── machines ───────────────────────────────────────────────────────────────

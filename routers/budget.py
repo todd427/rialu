@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from db import db, row_to_dict
+from poller import poll_fly_billing
 
 router = APIRouter(tags=["budget"])
 
@@ -92,6 +93,12 @@ def budget_summary():
         "api_30d_gbp": round(api_30d, 2),
         "total_gbp": round(monthly + annual + api_30d, 2),
     }
+
+
+@router.post("/api/budget/refresh")
+async def refresh_budget():
+    await poll_fly_billing()
+    return {"status": "ok", "message": "Billing refreshed"}
 
 
 @router.post("/api/budget", status_code=201)
