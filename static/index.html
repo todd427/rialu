@@ -194,6 +194,7 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
   <div class="ntab" data-p="machines">Machines</div>
   <div class="ntab" data-p="deployments">Deployments</div>
   <div class="ntab" data-p="budget">Budget &amp; APIs</div>
+  <div class="ntab" data-p="mcp">MCP</div>
   <div class="ntab" data-p="keys">Keys</div>
 </div>
 
@@ -363,6 +364,12 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
   <div class="hint">API cost attribution by project: pending Anthropic usage API integration.</div>
 </div>
 
+<!-- MCP -->
+<div id="mcp" class="panel">
+  <div class="row"><span class="slabel" id="mcp-count">MCP connectors</span><button class="btn" onclick="refreshMcp()">↻ Check all</button></div>
+  <div class="dcards" id="mcp-cards"><div class="loading">Loading…</div></div>
+</div>
+
 <!-- KEYS -->
 <div id="keys" class="panel">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -444,6 +451,7 @@ const TAB_LOADERS = {
   deployments: loadDeployments,
   budget: loadBudget,
   machines: loadMachines,
+  mcp: loadMcp,
   keys: loadKeys,
 };
 let loadedTabs = new Set();
@@ -849,6 +857,55 @@ async function refreshDeploys(){
   btn.disabled = true;
   await fetch('/api/deployments/refresh', {method:'POST'});
   await loadDeployments();
+  btn.textContent = orig;
+  btn.disabled = false;
+}
+
+// ── mcp status ────────────────────────────────────────────────────────────
+async function loadMcp(){
+  const svcs = await fetch('/api/mcp').then(r => r.json());
+  document.getElementById('mcp-count').textContent = svcs.length + ' MCP connectors';
+  renderMcpCards(svcs);
+}
+
+function mcpPill(val){
+  if (val === 'ok') return '<span class="pill ok"><span class="dot"></span>ok</span>';
+  if (val === 'auth-required') return '<span class="pill warn"><span class="dot"></span>auth-gated</span>';
+  if (val === 'down') return '<span class="pill err"><span class="dot"></span>down</span>';
+  if (val === 'unknown') return '<span class="pill gray">unchecked</span>';
+  if (val && val.startsWith('http')) return `<span class="pill err">${esc(val)}</span>`;
+  return `<span class="pill gray">${esc(val||'?')}</span>`;
+}
+
+function renderMcpCards(svcs){
+  const el = document.getElementById('mcp-cards');
+  if (!svcs.length){ el.innerHTML = '<div class="empty">No MCP servers configured.</div>'; return; }
+  el.innerHTML = svcs.map(s => `
+    <div class="dcard">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
+        <div>
+          <div class="dname">${esc(s.name)}</div>
+          <div class="dmeta">${esc(s.platform)} · ${esc(s.description)}</div>
+        </div>
+        ${mcpPill(s.health)}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+        <div style="font-size:10px;color:var(--t3)">health ${mcpPill(s.health)}</div>
+        <div style="font-size:10px;color:var(--t3)">oauth ${mcpPill(s.oauth)}</div>
+        <div style="font-size:10px;color:var(--t3)">mcp ${mcpPill(s.mcp)}</div>
+      </div>
+      ${s.latency_ms != null ? `<div class="dmeta">${s.latency_ms}ms · ${timeSince(s.checked_at)}</div>` : ''}
+      <div class="durl">${esc(s.url.replace('https://',''))}</div>
+      ${s.error ? `<div style="font-size:10px;color:var(--err);margin-top:4px">${esc(s.error)}</div>` : ''}
+    </div>`).join('');
+}
+
+async function refreshMcp(){
+  const btn = document.querySelector('#mcp .btn');
+  const orig = btn.textContent;
+  btn.textContent = '↻ Checking…';
+  btn.disabled = true;
+  await loadMcp();
   btn.textContent = orig;
   btn.disabled = false;
 }
