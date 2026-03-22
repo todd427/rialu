@@ -69,7 +69,7 @@ FLY_TOKEN = os.environ.get("FLY_API_TOKEN", "")
 FLY_GQL   = "https://api.fly.io/graphql"
 
 FLY_QUERY = """
-query($appNames: [String!]!) {
+{
   apps(first: 50) {
     nodes {
       name
@@ -96,11 +96,11 @@ async def poll_flyio() -> None:
             resp = await client.post(
                 FLY_GQL,
                 headers={"Authorization": f"Bearer {FLY_TOKEN}"},
-                json={"query": FLY_QUERY, "variables": {"appNames": []}},
+                json={"query": FLY_QUERY},
             )
             resp.raise_for_status()
             data = resp.json()
-        apps = data.get("data", {}).get("apps", {}).get("nodes", [])
+        apps = (data.get("data") or {}).get("apps", {}).get("nodes", [])
         with db() as conn:
             for app in apps:
                 name   = app.get("name", "")
@@ -179,12 +179,13 @@ async def poll_railway() -> None:
             resp.raise_for_status()
             data = resp.json()
 
-        projects = (
-            data.get("data", {})
-                .get("me", {})
-                .get("projects", {})
-                .get("edges", [])
-        )
+        me = (data.get("data") or {}).get("me")
+        if me is None:
+            errors = data.get("errors", [])
+            msg = errors[0].get("message", "unknown") if errors else "no data"
+            log.warning(f"[railway] API returned no data: {msg}")
+            return
+        projects = me.get("projects", {}).get("edges", [])
         with db() as conn:
             count = 0
             for p_edge in projects:
