@@ -210,7 +210,19 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
       </div>
       <span class="slabel" id="project-count">loading...</span>
     </div>
-    <button class="btn btn-acc" onclick="toggleAddForm()">+ New project</button>
+    <div style="display:flex;gap:6px">
+      <button class="btn" onclick="reviewMilestones()">↻ Review milestones</button>
+      <button class="btn btn-acc" onclick="toggleAddForm()">+ New project</button>
+    </div>
+  </div>
+  <div id="review-results" style="display:none;margin-bottom:12px">
+    <div class="form-block" style="border-color:var(--acc)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span class="slabel" style="color:var(--acc3)" id="review-summary">Review results</span>
+        <span style="cursor:pointer;color:var(--t3);font-size:12px" onclick="document.getElementById('review-results').style.display='none'">✕</span>
+      </div>
+      <div id="review-list" style="font-size:11px;max-height:300px;overflow-y:auto"></div>
+    </div>
   </div>
 
   <div class="form-block" id="add-form" style="display:none">
@@ -720,9 +732,9 @@ async function deleteProject(id){
 }
 
 async function toggleMilestone(mid, pid){
-  const row = document.querySelector(`#ms-${pid} .ms-row [onclick*="${mid}"]`)?.closest('.ms-row');
+  const row = document.querySelector(`#ms-${pid} .ms-row[onclick*="(${mid},"]`);
   const check = row?.querySelector('.ms-check');
-  const isDone = check?.classList.contains('done');
+  const isDone = check ? check.classList.contains('done') : false;
   await fetch(`/api/projects/milestones/${mid}`, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
@@ -745,6 +757,44 @@ async function addMilestonePrompt(pid){
 function toggleAddForm(){
   const f = document.getElementById('add-form');
   f.style.display = f.style.display === 'none' ? 'block' : 'none';
+}
+
+async function reviewMilestones(){
+  const btn = document.querySelector('#projects .btn');
+  const orig = btn.textContent;
+  btn.textContent = '↻ Reviewing…';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/milestones/review', {method:'POST'});
+    const data = await r.json();
+    const panel = document.getElementById('review-results');
+    const summary = document.getElementById('review-summary');
+    const list = document.getElementById('review-list');
+    panel.style.display = 'block';
+    summary.textContent = `Reviewed ${data.reviewed} milestones — ${data.completed} auto-completed, ${data.unchanged} unchanged`;
+    if (data.results && data.results.length) {
+      list.innerHTML = data.results.map(r => {
+        const icon = r.action === 'completed' ? '<span style="color:var(--ok)">✓</span>' : '<span style="color:var(--t3)">·</span>';
+        const style = r.action === 'completed' ? 'color:var(--ok)' : 'color:var(--t2)';
+        return `<div style="display:flex;gap:8px;padding:3px 0;border-bottom:0.5px solid var(--bd)">
+          <span style="width:14px">${icon}</span>
+          <span style="width:100px;color:var(--t3);font-size:10px">${esc(r.project)}</span>
+          <span style="${style};flex:1">${esc(r.title)}</span>
+          <span style="color:var(--t3);font-size:10px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((r.evidence||'').substring(0,120))}</span>
+        </div>`;
+      }).join('');
+    } else {
+      list.innerHTML = '<div class="empty">No open milestones to review.</div>';
+    }
+    if (data.completed > 0) {
+      loadedTabs.delete('projects');
+      await loadProjects();
+    }
+  } catch(e) {
+    alert('Review failed: ' + e.message);
+  }
+  btn.textContent = orig;
+  btn.disabled = false;
 }
 
 async function submitAddProject(){

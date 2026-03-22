@@ -235,7 +235,20 @@ MIGRATIONS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_key_audit ON key_audit_log(key_id, performed_at)",
-    # 007 — lines of code in worklog
+    # 007 — milestone review log
+    """
+    CREATE TABLE IF NOT EXISTS milestone_review_log (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        milestone_id    INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
+        project_name    TEXT NOT NULL,
+        milestone_title TEXT NOT NULL,
+        action          TEXT NOT NULL,
+        evidence        TEXT,
+        reviewed_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_milestone_review ON milestone_review_log(reviewed_at)",
+    # 008 — lines of code in worklog
     "ALTER TABLE worklog ADD COLUMN lines_added INTEGER DEFAULT 0",
     "ALTER TABLE worklog ADD COLUMN lines_removed INTEGER DEFAULT 0",
     # 006 — anthropic token usage (from CSV export)
