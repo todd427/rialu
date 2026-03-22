@@ -946,22 +946,22 @@ async function loadBudget(){
     fetch('/api/usage/by-key').then(r => r.json()).catch(() => []),
   ]);
   // Summary cards
-  const fly    = budget.filter(b => b.platform === 'fly.io' && b.active).reduce((a,b) => a+b.cost_gbp, 0);
-  const rail   = budget.filter(b => b.platform === 'railway' && b.active).reduce((a,b) => a+b.cost_gbp, 0);
-  const cf     = budget.filter(b => b.platform === 'cloudflare' && b.active).reduce((a,b) => a+b.cost_gbp, 0);
-  document.getElementById('b-fly').textContent = '£' + fly.toFixed(2);
-  document.getElementById('b-rail').textContent = '£' + rail.toFixed(2);
-  document.getElementById('b-cf').textContent = '£' + cf.toFixed(2);
-  document.getElementById('b-api').textContent = '£' + summary.api_30d_gbp.toFixed(2);
-  document.getElementById('b-total').textContent = '£' + summary.total_gbp.toFixed(2);
+  const fly    = budget.filter(b => b.platform === 'fly.io' && b.active).reduce((a,b) => a+b.cost_eur, 0);
+  const rail   = budget.filter(b => b.platform === 'railway' && b.active).reduce((a,b) => a+b.cost_eur, 0);
+  const cf     = budget.filter(b => b.platform === 'cloudflare' && b.active).reduce((a,b) => a+b.cost_eur, 0);
+  document.getElementById('b-fly').textContent = '€' + fly.toFixed(2);
+  document.getElementById('b-rail').textContent = '€' + rail.toFixed(2);
+  document.getElementById('b-cf').textContent = '€' + cf.toFixed(2);
+  document.getElementById('b-api').textContent = '€' + summary.api_30d_eur.toFixed(2);
+  document.getElementById('b-total').textContent = '€' + summary.total_eur.toFixed(2);
 
   // Anthropic usage
   if (uSummary) {
     document.getElementById('u-input').textContent = fmtTokens(uSummary.month_input_tokens);
     document.getElementById('u-output').textContent = fmtTokens(uSummary.month_output_tokens);
     document.getElementById('u-searches').textContent = uSummary.month_web_searches.toLocaleString();
-    document.getElementById('u-cost').textContent = '$' + uSummary.month_cost_usd.toFixed(2);
-    document.getElementById('b-api').textContent = '$' + uSummary.month_cost_usd.toFixed(2);
+    document.getElementById('u-cost').textContent = '€' + uSummary.month_cost_eur.toFixed(2);
+    document.getElementById('b-api').textContent = '€' + uSummary.month_cost_eur.toFixed(2);
   }
   const mtb = document.getElementById('u-models');
   if (uModels.length) {
@@ -969,7 +969,7 @@ async function loadBudget(){
       <td class="mono" style="font-size:10px">${esc(m.model.replace('claude-','').replace('-20250514',''))}</td>
       <td class="mono">${fmtTokens(m.input_total)}</td>
       <td class="mono">${fmtTokens(m.output_total)}</td>
-      <td class="mono">$${m.cost_usd.toFixed(2)}</td>
+      <td class="mono">€${m.cost_usd.toFixed(2)}</td>
     </tr>`).join('');
   } else { mtb.innerHTML = '<tr><td colspan="4" class="empty">No data — import CSV</td></tr>'; }
   const ktb = document.getElementById('u-keys');
@@ -978,7 +978,7 @@ async function loadBudget(){
       <td style="font-size:11px">${esc(k.api_key_name)}</td>
       <td class="mono">${fmtTokens(k.input_total)}</td>
       <td class="mono">${fmtTokens(k.output_total)}</td>
-      <td class="mono">$${k.cost_usd.toFixed(2)}</td>
+      <td class="mono">€${k.cost_usd.toFixed(2)}</td>
     </tr>`).join('');
   } else { ktb.innerHTML = '<tr><td colspan="4" class="empty">No data — import CSV</td></tr>'; }
 
@@ -990,7 +990,7 @@ async function loadBudget(){
       <td style="color:var(--text);font-weight:500">${esc(a.name)}</td>
       <td>${esc(a.provider)}</td>
       <td class="mono">${esc(a.billing_model)}</td>
-      <td class="mono">${a.cost_per_unit_gbp ? '£'+a.cost_per_unit_gbp : '—'}</td>
+      <td class="mono">${a.cost_per_unit_gbp ? '€'+a.cost_per_unit_gbp : '—'}</td>
       <td><span class="pill gray" style="font-size:9px">manual</span></td>
       <td><span class="pill ${a.active ? 'ok':'gray'}"><span class="dot"></span>${a.active ? 'active':'inactive'}</span></td>
     </tr>`).join('');

@@ -238,7 +238,7 @@ FLY_PRICING = {
     "performance": {"cpu_per": 29.00, "mem_per_256mb": 2.30},
 }
 FLY_VOLUME_PER_GB = 0.15  # USD/GB/month
-USD_TO_GBP = 0.79  # approximate
+USD_TO_EUR = 0.92  # approximate
 
 
 async def poll_fly_billing() -> None:
@@ -302,7 +302,7 @@ async def poll_fly_billing() -> None:
                     except Exception:
                         pass
 
-                    cost_gbp = round(monthly_usd * USD_TO_GBP, 2)
+                    cost_gbp = round(monthly_usd * USD_TO_EUR, 2)
                     machine_desc = f"{len(machines)} machine(s)" if machines else "no machines"
                     _upsert_budget(conn, "fly.io", app_name, cost_gbp, "monthly",
                                    notes=f"estimated: {machine_desc}, ${monthly_usd:.2f}/mo")

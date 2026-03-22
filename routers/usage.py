@@ -22,6 +22,7 @@ PRICING = {
 }
 WEB_SEARCH_COST = 0.01  # $0.01 per search
 DEFAULT_PRICING = {"input": 3.00, "output": 15.00, "cache_write": 3.75, "cache_read": 0.30}
+USD_TO_EUR = 0.92
 
 
 def _estimate_cost(row: dict) -> float:
@@ -35,7 +36,7 @@ def _estimate_cost(row: dict) -> float:
     cost += (row.get("cache_write_1h", 0) / 1_000_000) * pricing["cache_write"]
     cost += (row.get("cache_read", 0) / 1_000_000) * pricing["cache_read"]
     cost += row.get("web_searches", 0) * WEB_SEARCH_COST
-    return round(cost, 4)
+    return round(cost * USD_TO_EUR, 4)
 
 
 @router.post("/import")
@@ -111,9 +112,9 @@ def usage_summary():
     return {
         "month_input_tokens": month["total_input"],
         "month_output_tokens": month["total_output"],
-        "month_cost_usd": round(month["total_cost_usd"], 2),
+        "month_cost_eur": round(month["total_cost_usd"], 2),
         "month_web_searches": month["total_searches"],
-        "prev_month_cost_usd": round(prev["total_cost_usd"], 2),
+        "prev_month_cost_eur": round(prev["total_cost_usd"], 2),
     }
 
 

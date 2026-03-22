@@ -89,9 +89,9 @@ def budget_summary():
                WHERE recorded_at >= datetime('now', '-30 days')"""
         ).fetchone()["total"]
     return {
-        "monthly_platform_gbp": round(monthly + annual, 2),
-        "api_30d_gbp": round(api_30d, 2),
-        "total_gbp": round(monthly + annual + api_30d, 2),
+        "monthly_platform_eur": round(monthly + annual, 2),
+        "api_30d_eur": round(api_30d, 2),
+        "total_eur": round(monthly + annual + api_30d, 2),
     }
 
 
