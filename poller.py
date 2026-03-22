@@ -363,8 +363,10 @@ async def poll_github_loc() -> None:
         async with httpx.AsyncClient(timeout=15, headers=headers) as client:
             for proj in projects:
                 repo_url = proj["repo_url"]
+                # Only process github.com URLs
+                if "github.com" not in repo_url:
+                    continue
                 # Extract owner/repo from URL
-                # Handles https://github.com/owner/repo or github.com/owner/repo
                 parts = repo_url.rstrip("/").split("/")
                 if len(parts) < 2:
                     continue
@@ -372,11 +374,11 @@ async def poll_github_loc() -> None:
                 repo = repo.replace(".git", "")
 
                 try:
-                    # Get commits for last 7 days by this user
+                    # Get all commits for last 7 days (no author filter — count all work)
                     since = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=7)).strftime("%Y-%m-%dT00:00:00Z")
                     resp = await client.get(
                         f"{GITHUB_API}/repos/{owner}/{repo}/commits",
-                        params={"author": GITHUB_USER, "since": since, "per_page": 100},
+                        params={"since": since, "per_page": 100},
                     )
                     if resp.status_code != 200:
                         continue
