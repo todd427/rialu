@@ -235,6 +235,25 @@ MIGRATIONS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_key_audit ON key_audit_log(key_id, performed_at)",
+    # 006 — anthropic token usage (from CSV export)
+    """
+    CREATE TABLE IF NOT EXISTS anthropic_usage (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        usage_date          TEXT NOT NULL,
+        model               TEXT NOT NULL,
+        api_key_name        TEXT,
+        input_tokens        INTEGER NOT NULL DEFAULT 0,
+        cache_write_5m      INTEGER NOT NULL DEFAULT 0,
+        cache_write_1h      INTEGER NOT NULL DEFAULT 0,
+        cache_read          INTEGER NOT NULL DEFAULT 0,
+        output_tokens       INTEGER NOT NULL DEFAULT 0,
+        web_searches        INTEGER NOT NULL DEFAULT 0,
+        cost_usd            REAL NOT NULL DEFAULT 0,
+        imported_at         TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(usage_date, model, api_key_name)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_anthropic_usage_date ON anthropic_usage(usage_date)",
 ]
 
 

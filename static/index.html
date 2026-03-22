@@ -357,12 +357,36 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
     <div class="mcard"><div class="mclabel">Anthropic 30d</div><div class="mcval" id="b-api">—</div></div>
     <div class="mcard"><div class="mclabel" style="font-weight:500">Total all-in</div><div class="mcval" style="color:var(--acc)" id="b-total">—</div></div>
   </div>
+  <div class="row" style="margin-top:14px">
+    <span class="slabel">Anthropic token usage</span>
+    <div style="display:flex;gap:6px;align-items:center">
+      <input type="file" id="csv-upload" accept=".csv" style="display:none" onchange="uploadUsageCsv(this)">
+      <button class="btn" onclick="document.getElementById('csv-upload').click()">↑ Import CSV</button>
+    </div>
+  </div>
+  <div class="mcards" style="margin-bottom:8px">
+    <div class="mcard"><div class="mclabel">Input tokens (month)</div><div class="mcval mono" id="u-input">—</div></div>
+    <div class="mcard"><div class="mclabel">Output tokens (month)</div><div class="mcval mono" id="u-output">—</div></div>
+    <div class="mcard"><div class="mclabel">Web searches</div><div class="mcval mono" id="u-searches">—</div></div>
+    <div class="mcard"><div class="mclabel" style="font-weight:500">Est. cost (month)</div><div class="mcval" style="color:var(--warn)" id="u-cost">—</div></div>
+  </div>
+  <div style="display:flex;gap:12px;margin-bottom:14px">
+    <div style="flex:1">
+      <div class="slabel" style="margin-bottom:6px">By model</div>
+      <table class="tbl"><thead><tr><th>Model</th><th style="width:90px">Input</th><th style="width:90px">Output</th><th style="width:70px">Cost</th></tr></thead>
+      <tbody id="u-models"><tr><td colspan="4" class="loading">—</td></tr></tbody></table>
+    </div>
+    <div style="flex:1">
+      <div class="slabel" style="margin-bottom:6px">By API key</div>
+      <table class="tbl"><thead><tr><th>Key</th><th style="width:90px">Input</th><th style="width:90px">Output</th><th style="width:70px">Cost</th></tr></thead>
+      <tbody id="u-keys"><tr><td colspan="4" class="loading">—</td></tr></tbody></table>
+    </div>
+  </div>
   <div class="slabel" style="margin-bottom:8px">API registry</div>
   <table class="tbl">
     <thead><tr><th style="width:120px">API</th><th style="width:90px">Provider</th><th style="width:90px">Billing</th><th style="width:70px">Est./mo</th><th style="width:70px">Poll</th><th>Status</th></tr></thead>
     <tbody id="api-tbody"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
   </table>
-  <div class="hint">API cost attribution by project: pending Anthropic usage API integration.</div>
 </div>
 
 <!-- MCP -->
@@ -913,10 +937,13 @@ async function refreshMcp(){
 
 // ── budget ─────────────────────────────────────────────────────────────────
 async function loadBudget(){
-  const [summary, budget, apis] = await Promise.all([
+  const [summary, budget, apis, uSummary, uModels, uKeys] = await Promise.all([
     fetch('/api/budget/summary').then(r => r.json()),
     fetch('/api/budget').then(r => r.json()),
     fetch('/api/apis').then(r => r.json()),
+    fetch('/api/usage/summary').then(r => r.json()).catch(() => null),
+    fetch('/api/usage/by-model').then(r => r.json()).catch(() => []),
+    fetch('/api/usage/by-key').then(r => r.json()).catch(() => []),
   ]);
   // Summary cards
   const fly    = budget.filter(b => b.platform === 'fly.io' && b.active).reduce((a,b) => a+b.cost_gbp, 0);
@@ -927,6 +954,33 @@ async function loadBudget(){
   document.getElementById('b-cf').textContent = '£' + cf.toFixed(2);
   document.getElementById('b-api').textContent = '£' + summary.api_30d_gbp.toFixed(2);
   document.getElementById('b-total').textContent = '£' + summary.total_gbp.toFixed(2);
+
+  // Anthropic usage
+  if (uSummary) {
+    document.getElementById('u-input').textContent = fmtTokens(uSummary.month_input_tokens);
+    document.getElementById('u-output').textContent = fmtTokens(uSummary.month_output_tokens);
+    document.getElementById('u-searches').textContent = uSummary.month_web_searches.toLocaleString();
+    document.getElementById('u-cost').textContent = '$' + uSummary.month_cost_usd.toFixed(2);
+    document.getElementById('b-api').textContent = '$' + uSummary.month_cost_usd.toFixed(2);
+  }
+  const mtb = document.getElementById('u-models');
+  if (uModels.length) {
+    mtb.innerHTML = uModels.map(m => `<tr>
+      <td class="mono" style="font-size:10px">${esc(m.model.replace('claude-','').replace('-20250514',''))}</td>
+      <td class="mono">${fmtTokens(m.input_total)}</td>
+      <td class="mono">${fmtTokens(m.output_total)}</td>
+      <td class="mono">$${m.cost_usd.toFixed(2)}</td>
+    </tr>`).join('');
+  } else { mtb.innerHTML = '<tr><td colspan="4" class="empty">No data — import CSV</td></tr>'; }
+  const ktb = document.getElementById('u-keys');
+  if (uKeys.length) {
+    ktb.innerHTML = uKeys.map(k => `<tr>
+      <td style="font-size:11px">${esc(k.api_key_name)}</td>
+      <td class="mono">${fmtTokens(k.input_total)}</td>
+      <td class="mono">${fmtTokens(k.output_total)}</td>
+      <td class="mono">$${k.cost_usd.toFixed(2)}</td>
+    </tr>`).join('');
+  } else { ktb.innerHTML = '<tr><td colspan="4" class="empty">No data — import CSV</td></tr>'; }
 
   // API table
   const tbody = document.getElementById('api-tbody');
@@ -940,6 +994,29 @@ async function loadBudget(){
       <td><span class="pill gray" style="font-size:9px">manual</span></td>
       <td><span class="pill ${a.active ? 'ok':'gray'}"><span class="dot"></span>${a.active ? 'active':'inactive'}</span></td>
     </tr>`).join('');
+}
+
+function fmtTokens(n) {
+  if (!n) return '0';
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n/1_000).toFixed(0) + 'k';
+  return n.toString();
+}
+
+async function uploadUsageCsv(input) {
+  if (!input.files.length) return;
+  const form = new FormData();
+  form.append('file', input.files[0]);
+  const r = await fetch('/api/usage/import', {method: 'POST', body: form});
+  const data = await r.json();
+  input.value = '';
+  if (r.ok) {
+    alert('Imported ' + data.rows_imported + ' rows');
+    loadedTabs.delete('budget');
+    loadBudget();
+  } else {
+    alert('Import failed: ' + (data.detail || 'unknown error'));
+  }
 }
 
 async function refreshBudget(){
