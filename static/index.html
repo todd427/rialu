@@ -609,8 +609,25 @@ async function loadProjectDetail(id){
   const detail = document.getElementById('pd-'+id);
   const p = allProjects.find(x => x.id === id);
   if (!p) return;
-  const milestones = await fetch(`/api/projects/${id}/milestones`).then(r => r.json());
+  const [milestones, dash] = await Promise.all([
+    fetch(`/api/projects/${id}/milestones`).then(r => r.json()),
+    fetch(`/api/projects/${id}/dashboard`).then(r => r.json()).catch(() => null),
+  ]);
+  const locW = dash?.loc_week || {added:0,removed:0};
+  const locT = dash?.loc_total || {added:0,removed:0};
+  const dep = dash?.deploy;
+  const depPill = dep ? (dep.status==='healthy'
+    ? '<span class="pill ok"><span class="dot"></span>healthy</span>'
+    : dep.status==='error' ? '<span class="pill err"><span class="dot"></span>error</span>'
+    : dep.status==='stopped' ? '<span class="pill gray"><span class="dot"></span>stopped</span>'
+    : `<span class="pill warn">${esc(dep.status)}</span>`) : '';
   detail.innerHTML = `
+    <div class="mcards" style="margin-bottom:10px">
+      <div class="mcard"><div class="mclabel">LOC (week)</div><div class="mcval mono" style="font-size:13px"><span style="color:var(--ok)">+${locW.added.toLocaleString()}</span> <span style="color:var(--err)">-${locW.removed.toLocaleString()}</span></div></div>
+      <div class="mcard"><div class="mclabel">LOC (total)</div><div class="mcval mono" style="font-size:13px"><span style="color:var(--ok)">+${locT.added.toLocaleString()}</span> <span style="color:var(--err)">-${locT.removed.toLocaleString()}</span></div></div>
+      <div class="mcard"><div class="mclabel">Time (week)</div><div class="mcval">${dash?.minutes_week || 0}<span style="font-size:10px;color:var(--t3)"> min</span></div></div>
+      <div class="mcard"><div class="mclabel">Deploy</div><div class="mcval" style="font-size:12px">${dep ? depPill : '<span style="color:var(--t3)">—</span>'}</div>${dep?.last_deploy_at ? `<div class="mcsub">${timeSince(dep.last_deploy_at)}</div>` : ''}</div>
+    </div>
     <div class="detail-grid">
       <div>
         <div class="dlabel">Description</div>
@@ -619,9 +636,15 @@ async function loadProjectDetail(id){
       <div>
         <div class="dlabel">Location</div>
         <div class="dval">${esc([p.machine, p.platform].filter(Boolean).join(' · ') || '—')}</div>
-        ${p.repo_url ? `<div style="margin-top:8px"><div class="dlabel">Repo</div><div class="dval"><a href="${esc(p.repo_url)}" target="_blank">${esc(p.repo_url.replace('https://',''))}</a></div></div>` : ''}
+        ${p.repo_url ? `<div style="margin-top:8px"><div class="dlabel">Repo</div><div class="dval"><a href="${esc(p.repo_url)}" target="_blank" style="color:var(--acc)">${esc(p.repo_url.replace('https://github.com/',''))}</a></div></div>` : ''}
       </div>
     </div>
+    ${dash?.recent_work?.length ? `
+    <div class="dlabel" style="margin-bottom:4px;margin-top:8px">Recent activity</div>
+    <div style="font-size:11px;color:var(--t2);margin-bottom:8px">${dash.recent_work.map(w => {
+      const loc = (w.lines_added||0)+(w.lines_removed||0);
+      return `<div style="display:flex;gap:8px;padding:2px 0"><span class="mono" style="color:var(--t3);width:70px">${w.date}</span><span style="width:45px">${w.session_type}</span>${w.minutes?`<span class="mono" style="width:40px">${w.minutes}m</span>`:'<span style="width:40px"></span>'}${loc?`<span class="mono"><span style="color:var(--ok)">+${w.lines_added||0}</span> <span style="color:var(--err)">-${w.lines_removed||0}</span></span>`:''}<span style="color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w.notes||'')}</span></div>`;
+    }).join('')}</div>` : ''}
     <div class="dlabel" style="margin-bottom:6px">Milestones</div>
     <div class="milestones" id="ms-${id}">
       ${milestones.length

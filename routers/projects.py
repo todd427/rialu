@@ -133,6 +133,66 @@ def delete_project(project_id: int):
         conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
 
 
+# ── project dashboard ────────────────────────────────────────────────────────
+
+@router.get("/{project_id}/dashboard")
+def project_dashboard(project_id: int):
+    """At-a-glance stats for a project: LOC, deploy status, recent worklog."""
+    with db() as conn:
+        proj = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if not proj:
+            raise HTTPException(404, "Project not found")
+
+        # LOC this week
+        loc = conn.execute(
+            """SELECT COALESCE(SUM(lines_added), 0) as added,
+                      COALESCE(SUM(lines_removed), 0) as removed
+               FROM worklog WHERE project_id = ? AND date >= date('now', '-6 days')""",
+            (project_id,),
+        ).fetchone()
+
+        # LOC all time
+        loc_all = conn.execute(
+            """SELECT COALESCE(SUM(lines_added), 0) as added,
+                      COALESCE(SUM(lines_removed), 0) as removed
+               FROM worklog WHERE project_id = ?""",
+            (project_id,),
+        ).fetchone()
+
+        # Minutes this week
+        mins = conn.execute(
+            """SELECT COALESCE(SUM(minutes), 0) as total
+               FROM worklog WHERE project_id = ? AND date >= date('now', '-6 days')""",
+            (project_id,),
+        ).fetchone()["total"]
+
+        # Deploy status — match by project name (lowercase) in deployments_cache
+        name = proj["name"].lower()
+        deploy = conn.execute(
+            """SELECT service_name, status, last_deploy_at, url, platform
+               FROM deployments_cache
+               WHERE LOWER(service_name) LIKE ? OR LOWER(service_name) LIKE ?
+               ORDER BY checked_at DESC LIMIT 1""",
+            (f"%{name}%", f"%{proj['slug']}%"),
+        ).fetchone()
+
+        # Recent worklog entries
+        recent_work = conn.execute(
+            """SELECT date, minutes, session_type, lines_added, lines_removed, notes
+               FROM worklog WHERE project_id = ?
+               ORDER BY date DESC, id DESC LIMIT 5""",
+            (project_id,),
+        ).fetchall()
+
+    return {
+        "loc_week": {"added": loc["added"], "removed": loc["removed"]},
+        "loc_total": {"added": loc_all["added"], "removed": loc_all["removed"]},
+        "minutes_week": mins,
+        "deploy": row_to_dict(deploy) if deploy else None,
+        "recent_work": [row_to_dict(r) for r in recent_work],
+    }
+
+
 # ── milestones ───────────────────────────────────────────────────────────────
 
 @router.get("/{project_id}/milestones")
