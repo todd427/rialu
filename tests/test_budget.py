@@ -43,10 +43,10 @@ def test_budget_summary():
     resp = client.get("/api/budget/summary")
     assert resp.status_code == 200
     data = resp.json()
-    assert "monthly_platform_gbp" in data
-    assert "api_30d_gbp" in data
-    assert "total_gbp" in data
-    assert data["monthly_platform_gbp"] >= 5.0
+    assert "monthly_platform_eur" in data
+    assert "api_30d_eur" in data
+    assert "total_eur" in data
+    assert data["monthly_platform_eur"] >= 5.0
 
 
 def test_update_budget_entry():
