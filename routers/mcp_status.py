@@ -37,6 +37,13 @@ MCP_SERVERS = [
         "platform": "fly.io",
         "description": "Git operations",
     },
+    {
+        "name": "Flyer",
+        "url": "https://fly-mcp-foxxelabs.fly.dev",
+        "mcp_path": "/mcp",
+        "platform": "fly.io",
+        "description": "Fly.io management",
+    },
 ]
 
 
