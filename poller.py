@@ -131,27 +131,25 @@ RAILWAY_TOKEN = os.environ.get("RAILWAY_API_TOKEN", "")
 RAILWAY_GQL   = "https://backboard.railway.app/graphql/v2"
 
 RAILWAY_QUERY = """
-query {
-  me {
-    projects {
-      edges {
-        node {
-          id
-          name
-          services {
-            edges {
-              node {
-                id
-                name
-                deployments(first: 1) {
-                  edges {
-                    node {
-                      id
-                      status
-                      createdAt
-                      url
-                      meta
-                    }
+{
+  projects {
+    edges {
+      node {
+        id
+        name
+        services {
+          edges {
+            node {
+              id
+              name
+              deployments(first: 1) {
+                edges {
+                  node {
+                    id
+                    status
+                    createdAt
+                    url
+                    meta
                   }
                 }
               }
@@ -179,13 +177,14 @@ async def poll_railway() -> None:
             resp.raise_for_status()
             data = resp.json()
 
-        me = (data.get("data") or {}).get("me")
-        if me is None:
+        api_data = data.get("data") or {}
+        projects_data = api_data.get("projects")
+        if projects_data is None:
             errors = data.get("errors", [])
             msg = errors[0].get("message", "unknown") if errors else "no data"
             log.warning(f"[railway] API returned no data: {msg}")
             return
-        projects = me.get("projects", {}).get("edges", [])
+        projects = projects_data.get("edges", [])
         with db() as conn:
             count = 0
             for p_edge in projects:
