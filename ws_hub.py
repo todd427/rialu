@@ -148,7 +148,15 @@ class AgentHub:
             self.tmux_cache[machine] = data.get("sessions", [])
 
         elif msg_type == "claude_status":
-            self.claude_cache[machine] = data.get("sessions", [])
+            sessions = data.get("sessions", [])
+            self.claude_cache[machine] = sessions
+            # Broadcast to Faire desktop clients
+            from faire_hub import faire_hub
+            await faire_hub.broadcast({
+                "event": "agent.claude_status",
+                "agent_id": machine,
+                "payload": {"machine": machine, "sessions": sessions},
+            })
 
         elif msg_type in ("terminal_data", "pane_data"):
             channel = data.get("channel", "")

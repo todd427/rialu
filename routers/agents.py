@@ -50,9 +50,12 @@ async def ingest_event(
     request: Request,
     x_rialu_sig: Optional[str] = Header(None),
 ):
+    # HMAC verification (optional — skip if no key configured or no sig sent)
     body = await request.body()
-    if not _verify_agent_sig(body, x_rialu_sig):
-        raise HTTPException(403, "Invalid signature")
+    secret = os.environ.get("RIALU_AGENT_KEY", "")
+    if secret and x_rialu_sig:
+        if not _verify_agent_sig(body, x_rialu_sig):
+            raise HTTPException(403, "Invalid signature")
 
     event_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
