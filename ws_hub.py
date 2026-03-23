@@ -173,7 +173,7 @@ class AgentHub:
                     pass
 
     async def _store_heartbeat(self, machine: str, data: dict):
-        """Upsert heartbeat data into DB."""
+        """Upsert heartbeat data into DB and broadcast to Faire clients."""
         with db() as conn:
             conn.execute(
                 "DELETE FROM machine_heartbeats WHERE machine_name = ?",
@@ -193,6 +193,20 @@ class AgentHub:
                     json.dumps(data.get("repos", [])),
                 ),
             )
+        # Broadcast to Faire desktop clients
+        from faire_hub import faire_hub
+        await faire_hub.broadcast({
+            "event": "agent.heartbeat",
+            "agent_id": machine,
+            "payload": {
+                "machine_name": machine,
+                "cpu_pct": data.get("cpu_pct"),
+                "ram_pct": data.get("ram_pct"),
+                "gpu_pct": data.get("gpu_pct"),
+                "processes": data.get("processes", []),
+                "repos": data.get("repos", []),
+            },
+        })
 
     def _store_api_scan(self, api_scan: dict):
         """Store API scan results in api_registry and api_project_map."""

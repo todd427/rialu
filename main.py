@@ -139,6 +139,18 @@ def health():
     return {"status": "ok", "app": "rialu"}
 
 
+@app.post("/api/test-broadcast")
+async def test_broadcast():
+    """Debug endpoint — send a test event to all Faire WS clients."""
+    clients = len(faire_hub.clients)
+    await faire_hub.broadcast({
+        "event": "project.update",
+        "project_id": None,
+        "payload": {"test": True, "message": "hello from test-broadcast"},
+    })
+    return {"clients": clients, "sent": True}
+
+
 # ── SPA catch-all ─────────────────────────────────────────────────────────────
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
