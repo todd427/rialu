@@ -4,8 +4,9 @@ mcp_server.py — FastMCP server for Rialú.
 Exposes key vault and project data to Claude via MCP.
 Mount point: /mcp (appended in main.py)
 
-Auth: Bearer token via RIALU_MCP_KEY env var.
-      Claude.ai registers this as a custom MCP connector with:
+Auth: Static Bearer token via RIALU_MCP_KEY env var.
+      Enforced by BearerAuthMiddleware on every tool call.
+      Claude.ai registers this as a custom MCP connector:
         URL: https://rialu.ie/mcp
         Header: Authorization: Bearer <RIALU_MCP_KEY>
 
@@ -19,24 +20,42 @@ Tools:
 """
 
 import os
+import secrets
 from typing import Optional
 
 from fastmcp import FastMCP
+from fastmcp.server.middleware import Middleware, MiddlewareContext
+from fastmcp.server.dependencies import get_http_headers
+from fastmcp.exceptions import ToolError
 
 from db import db, row_to_dict
 from key_vault import encrypt_key, decrypt_key, key_hint
 
-mcp = FastMCP("rialu")
-
 _MCP_KEY = os.environ.get("RIALU_MCP_KEY", "")
 
 
-def _check_auth(token: str | None):
-    """Raise if token doesn't match RIALU_MCP_KEY."""
-    if not _MCP_KEY:
-        raise PermissionError("RIALU_MCP_KEY not configured on server")
-    if not token or token != _MCP_KEY:
-        raise PermissionError("Invalid MCP key")
+# ── Auth middleware ───────────────────────────────────────────────────────────
+
+class BearerAuthMiddleware(Middleware):
+    """Validate RIALU_MCP_KEY Bearer token on every tool call."""
+
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        if not _MCP_KEY:
+            raise ToolError("RIALU_MCP_KEY not configured on server")
+        headers = get_http_headers()
+        auth_header = headers.get("authorization", "")
+        if not auth_header.startswith("Bearer "):
+            raise ToolError("Access denied: missing or malformed Bearer token")
+        token = auth_header.removeprefix("Bearer ").strip()
+        if not secrets.compare_digest(token, _MCP_KEY):
+            raise ToolError("Access denied: invalid token")
+        return await call_next(context)
+
+
+# ── Server ────────────────────────────────────────────────────────────────────
+
+mcp = FastMCP("rialu")
+mcp.add_middleware(BearerAuthMiddleware())
 
 
 # ── Vault ────────────────────────────────────────────────────────────────────
@@ -78,11 +97,11 @@ def reveal_key(name: str) -> dict:
             (name,),
         ).fetchone()
         if not row:
-            raise ValueError(f"Key '{name}' not found")
+            raise ToolError(f"Key '{name}' not found")
         try:
             value = decrypt_key(row["encrypted_value"])
         except ValueError as e:
-            raise ValueError(f"Decryption failed: {e}")
+            raise ToolError(f"Decryption failed: {e}")
         conn.execute(
             "INSERT INTO key_audit_log (key_id, action, detail) VALUES (?, 'revealed', 'via MCP')",
             (row["id"],),
@@ -121,7 +140,7 @@ def store_key(
             "SELECT id FROM key_store WHERE name = ?", (name,)
         ).fetchone()
         if existing:
-            raise ValueError(f"Key '{name}' already exists — use update_key to rotate")
+            raise ToolError(f"Key '{name}' already exists — use update_key to rotate")
         cur = conn.execute(
             "INSERT INTO key_store (name, provider, encrypted_value, hint, env_var, notes) "
             "VALUES (?, ?, ?, ?, ?, ?)",
@@ -151,7 +170,7 @@ def update_key(name: str, value: str) -> dict:
             "SELECT id FROM key_store WHERE name = ?", (name,)
         ).fetchone()
         if not row:
-            raise ValueError(f"Key '{name}' not found")
+            raise ToolError(f"Key '{name}' not found")
         conn.execute(
             "UPDATE key_store SET encrypted_value = ?, hint = ?, updated_at = datetime('now') WHERE id = ?",
             (encrypted, hint, row["id"]),
