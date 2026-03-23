@@ -69,27 +69,43 @@ API_REGISTRY = [
 ]
 
 PROJECTS = [
-    # name, slug, status, machine, platform, phase, notes
+    # name, slug, status, machine, platform, phase, notes, site_url
     ("Aislinge",    "aislinge",   "running",    "rose",   None,      "phase-4-eval",
-     "Dream consolidation runtime. Radharc → Aislinge → Legion. Turns episodic Mnemos snapshots into learning statements."),
+     "Dream consolidation runtime. Radharc → Aislinge → Legion. Turns episodic Mnemos snapshots into learning statements.",
+     None),
     ("Legion",      "legion",     "development","iris",   None,      "peekaboo",
-     "Distributed AI swarm. IRC-based agent-to-agent protocol. SFI funding target Q2."),
+     "Distributed AI swarm. IRC-based agent-to-agent protocol. SFI funding target Q2.",
+     None),
     ("UCA Dissertation","uca-dissertation","development",None,None,  "chapter-3",
-     "MSc Cyberpsychology dissertation, ATU Galway. Hard deadline 12 June 2026."),
+     "MSc Cyberpsychology dissertation, ATU Galway. Hard deadline 12 June 2026.",
+     None),
     ("Mnemos",      "mnemos",     "deployed",   "rose",   "fly.io",  None,
-     "Personal RAG memory system. ChromaDB + sentence-transformers + FastMCP."),
+     "Personal RAG memory system. ChromaDB + sentence-transformers + FastMCP.",
+     "https://mnemos.foxxelabs.ie"),
     ("Anseo",       "anseo",      "deployed",   None,     "railway", None,
-     "Django community platform. anseo.irish and alpha.anseo.irish."),
+     "Django community platform. anseo.irish and alpha.anseo.irish.",
+     "https://anseo.irish"),
     ("Scéal",       "sceal",      "development","daisy",  None,      "tokeniser",
-     "Irish language NLP model training on Daisy (RTX 5060)."),
+     "Irish language NLP model training on Daisy (RTX 5060).",
+     None),
     ("Foghliam",    "foghliam",   "development","daisy",  None,      "scaffold",
-     "Irish learning tool. Dev server running on Daisy :8000."),
+     "Irish learning tool. Dev server running on Daisy :8000.",
+     None),
     ("AfterWords",  "afterwords", "research",   None,     None,      None,
-     "Digital legacy avatar project. University of Souls framing. toddBot = AI avatar."),
+     "Digital legacy avatar project. University of Souls framing. toddBot = AI avatar.",
+     None),
     ("Rialú",       "rialu",      "development",None,     "fly.io",  "phase-1",
-     "This app. Personal command centre at rialu.ie."),
+     "This app. Personal command centre at rialu.ie.",
+     "https://rialu.ie"),
     ("CyberSafer",  "cybersafer", "paused",     None,     "cf-pages",None,
-     "v2 deployed. 21 scenarios, 6 categories, 764 test checks. ICO registration pending."),
+     "v2 deployed. 21 scenarios, 6 categories, 764 test checks. ICO registration pending.",
+     "https://cybersafer.uk"),
+    ("Sentinel",    "sentinel",   "deployed",   None,     "fly.io",  None,
+     "Centralised IP threat intelligence for FoxxeLabs Django projects.",
+     "https://sentinel.foxxelabs.ie"),
+    ("git-mcp",     "git-mcp",    "deployed",   None,     "fly.io",  None,
+     "MCP server providing Git operations for GitHub repos.",
+     "https://git-mcp-foxxelabs.fly.dev"),
 ]
 
 MILESTONES = {
@@ -151,17 +167,23 @@ def seed():
             )
 
         # projects
-        for name, slug, status, machine, platform, phase, notes in PROJECTS:
+        for name, slug, status, machine, platform, phase, notes, site_url in PROJECTS:
             existing = conn.execute(
                 "SELECT id FROM projects WHERE slug = ?", (slug,)
             ).fetchone()
             if existing:
+                # Backfill site_url if not already set
+                if site_url:
+                    conn.execute(
+                        "UPDATE projects SET site_url = ? WHERE id = ? AND (site_url IS NULL OR site_url = '')",
+                        (site_url, existing["id"]),
+                    )
                 print(f"  skip project (exists): {name}")
                 continue
             conn.execute(
-                """INSERT INTO projects (name, slug, status, machine, platform, phase, notes)
-                   VALUES (?,?,?,?,?,?,?)""",
-                (name, slug, status, machine, platform, phase, notes),
+                """INSERT INTO projects (name, slug, status, machine, platform, phase, notes, site_url)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (name, slug, status, machine, platform, phase, notes, site_url),
             )
             print(f"  created project: {name}")
 

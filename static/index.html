@@ -81,7 +81,7 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
 .form-block.green .form-field input:focus{border-color:var(--ok)}
 .form-field textarea{resize:vertical;min-height:60px}
 .form-field select option{background:var(--bg);color:var(--text)}
-.kboard{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.kboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
 .kcol{background:var(--bg2);border-radius:7px;padding:9px}
 .kcolhdr{font-size:9px;font-weight:500;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px}
 .kcard{background:var(--bg);border:0.5px solid var(--bd);border-radius:5px;padding:8px 9px;margin-bottom:5px}
@@ -195,6 +195,7 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
   <div class="ntab" data-p="deployments">Deployments</div>
   <div class="ntab" data-p="sentinel">Sentinel</div>
   <div class="ntab" data-p="budget">Budget &amp; APIs</div>
+  <div class="ntab" data-p="mnemos">Mnemos</div>
   <div class="ntab" data-p="mcp">MCP</div>
   <div class="ntab" data-p="keys">Keys</div>
 </div>
@@ -243,7 +244,8 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
       </div>
     </div>
     <div class="form-row">
-      <div class="form-field" style="flex:2"><label>Repo URL</label><input type="text" id="pf-repo" placeholder="https://github.com/todd427/..."></div>
+      <div class="form-field"><label>Repo URL</label><input type="text" id="pf-repo" placeholder="https://github.com/todd427/..."></div>
+      <div class="form-field"><label>Site URL</label><input type="text" id="pf-site" placeholder="https://rialu.ie"></div>
       <div class="form-field"><label>Current phase</label><input type="text" id="pf-phase" placeholder="e.g. peekaboo"></div>
     </div>
     <div class="form-row">
@@ -264,9 +266,47 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
   <div id="pv-timeline" style="display:none">
     <div class="tbar-hdr">
       <div class="tbar-label-col">Project</div>
-      <div class="tbar-months"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div>
+      <div class="tbar-months" id="timeline-months"></div>
     </div>
     <div id="timeline-rows"></div>
+  </div>
+
+  <div style="margin-top:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;cursor:pointer" onclick="toggleUntracked()">
+      <span class="slabel" id="untracked-label">Untracked GitHub repos</span>
+      <span class="pchev" id="untracked-chev" style="font-size:13px;color:var(--t3)">›</span>
+    </div>
+    <div id="untracked-panel" style="display:none">
+      <div style="margin-bottom:8px"><button class="btn" onclick="refreshGithubRepos()">↻ Refresh repos</button></div>
+      <div id="untracked-list"><div class="loading">Click refresh to scan GitHub…</div></div>
+    </div>
+  </div>
+
+  <div style="margin-top:14px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer" onclick="toggleCreateRepo()">
+      <span class="slabel">Create GitHub repo + project</span>
+      <span class="pchev" id="create-repo-chev" style="font-size:13px;color:var(--t3)">›</span>
+    </div>
+    <div id="create-repo-panel" style="display:none">
+      <div class="form-block">
+        <div class="form-row">
+          <div class="form-field" style="flex:2"><label>Repo name</label><input type="text" id="cr-name" placeholder="my-new-project"></div>
+          <div class="form-field"><label>Private</label>
+            <select id="cr-private"><option value="1" selected>Private</option><option value="0">Public</option></select>
+          </div>
+          <div class="form-field"><label>Status</label>
+            <select id="cr-status"><option>research</option><option selected>development</option><option>running</option></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-field" style="flex:2"><label>Description</label><input type="text" id="cr-desc" placeholder="Short description…"></div>
+          <div class="form-field"><label>Machine</label>
+            <select id="cr-machine"><option value="">—</option><option>rose</option><option>iris</option><option>daisy</option><option>lava</option></select>
+          </div>
+        </div>
+        <button class="btn btn-acc" onclick="createGithubRepo()">Create repo + project</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -385,6 +425,13 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
       <tbody id="st-projects"><tr><td colspan="2" class="loading">—</td></tr></tbody></table>
     </div>
   </div>
+  <div class="slabel" style="margin-bottom:6px">Recent events</div>
+  <div style="background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;overflow:hidden;margin-bottom:14px">
+    <table class="tbl">
+      <thead><tr><th style="width:130px">Time</th><th style="width:120px">IP</th><th>Path</th><th style="width:50px">Method</th><th style="width:50px">Code</th><th style="width:70px">Project</th><th style="width:50px">Score</th><th style="width:50px"></th></tr></thead>
+      <tbody id="st-events"><tr><td colspan="8" class="loading">—</td></tr></tbody>
+    </table>
+  </div>
   <div class="slabel" style="margin-bottom:6px">Blocklist <span id="st-bl-count" style="color:var(--t2)"></span></div>
   <div id="st-blocklist" style="font-family:monospace;font-size:11px;color:var(--t2);max-height:150px;overflow-y:auto">—</div>
 </div>
@@ -424,11 +471,51 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
       <tbody id="u-keys"><tr><td colspan="4" class="loading">—</td></tr></tbody></table>
     </div>
   </div>
+  <div class="slabel" style="margin-bottom:6px">API costs by project <span style="font-weight:400;color:var(--t3)">(30d)</span></div>
+  <table class="tbl" style="margin-bottom:14px">
+    <thead><tr><th style="width:140px">Project</th><th style="width:90px">Tokens in</th><th style="width:90px">Tokens out</th><th style="width:60px">Calls</th><th style="width:70px">Cost</th></tr></thead>
+    <tbody id="api-project-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+  </table>
   <div class="slabel" style="margin-bottom:8px">API registry</div>
   <table class="tbl">
     <thead><tr><th style="width:120px">API</th><th style="width:90px">Provider</th><th style="width:90px">Billing</th><th style="width:70px">Est./mo</th><th style="width:70px">Poll</th><th>Status</th></tr></thead>
     <tbody id="api-tbody"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
   </table>
+</div>
+
+<!-- MNEMOS -->
+<div id="mnemos" class="panel">
+  <div class="row"><span class="slabel" id="mn-count">Mnemos memory</span><button class="btn" onclick="refreshMnemos()">↻ Refresh</button></div>
+  <div class="mcards" id="mn-cards">
+    <div class="mcard"><div class="mclabel">Documents</div><div class="mcval" id="mn-total">—</div></div>
+    <div class="mcard"><div class="mclabel">Date range</div><div class="mcval" style="font-size:12px" id="mn-range">—</div></div>
+    <div class="mcard"><div class="mclabel">Undated</div><div class="mcval" id="mn-undated">—</div></div>
+    <div class="mcard"><div class="mclabel">Last update</div><div class="mcval" style="font-size:12px" id="mn-updated">—</div></div>
+  </div>
+  <div style="display:flex;gap:12px;margin-bottom:14px">
+    <div style="flex:1">
+      <div class="slabel" style="margin-bottom:6px">Composition</div>
+      <table class="tbl"><thead><tr><th>Source</th><th style="width:80px">Docs</th><th style="width:60px">%</th></tr></thead>
+      <tbody id="mn-sources"><tr><td colspan="3" class="loading">—</td></tr></tbody></table>
+    </div>
+    <div style="flex:1">
+      <div class="slabel" style="margin-bottom:6px">Recent activity (7d)</div>
+      <table class="tbl"><thead><tr><th>Date</th><th style="width:80px">Chunks</th></tr></thead>
+      <tbody id="mn-activity"><tr><td colspan="2" class="loading">—</td></tr></tbody></table>
+    </div>
+  </div>
+  <div class="slabel" style="margin-bottom:6px">Search memory</div>
+  <div style="display:flex;gap:6px;margin-bottom:10px">
+    <input type="text" id="mn-query" placeholder="Search Mnemos…" style="flex:1;background:var(--bg2);border:0.5px solid var(--bd2);border-radius:5px;padding:7px 10px;font-size:12px;color:var(--text);font-family:inherit;outline:none" onkeydown="if(event.key==='Enter')searchMnemos()">
+    <select id="mn-filter" style="background:var(--bg2);border:0.5px solid var(--bd2);border-radius:5px;padding:6px 8px;font-size:11px;color:var(--text);font-family:inherit">
+      <option value="nonfiction">Nonfiction</option>
+      <option value="personal">Personal</option>
+      <option value="project">Project</option>
+      <option value="all">All</option>
+    </select>
+    <button class="btn btn-acc" onclick="searchMnemos()">Search</button>
+  </div>
+  <div id="mn-results"></div>
 </div>
 
 <!-- MCP -->
@@ -519,6 +606,7 @@ const TAB_LOADERS = {
   budget: loadBudget,
   machines: loadMachines,
   sentinel: loadSentinel,
+  mnemos: loadMnemos,
   mcp: loadMcp,
   keys: loadKeys,
 };
@@ -595,6 +683,7 @@ function renderProjectList(projects){
       <div class="prow-summary" onclick="toggleProject(${p.id})">
         <div class="pmarker" style="background:${STATUS_COLOR[p.status]||'var(--t3)'}"></div>
         <span class="pname">${esc(p.name)}</span>
+        ${p.site_url ? `<a href="${esc(p.site_url)}" target="_blank" onclick="event.stopPropagation()" style="font-size:10px;color:var(--acc);text-decoration:none;flex-shrink:0">${esc(p.site_url.replace('https://',''))}</a>` : ''}
         ${statusPill(p.status)}
         ${p.machine ? `<span class="pmeta">${esc(p.machine)}</span>` : ''}
         ${p.phase ? `<span class="pmeta">${esc(p.phase)}</span>` : ''}
@@ -649,6 +738,7 @@ async function loadProjectDetail(id){
         <div class="dlabel">Location</div>
         <div class="dval">${esc([p.machine, p.platform].filter(Boolean).join(' · ') || '—')}</div>
         ${p.repo_url ? `<div style="margin-top:8px"><div class="dlabel">Repo</div><div class="dval"><a href="${esc(p.repo_url)}" target="_blank" style="color:var(--acc)">${esc(p.repo_url.replace('https://github.com/',''))}</a></div></div>` : ''}
+        ${p.site_url ? `<div style="margin-top:8px"><div class="dlabel">Site</div><div class="dval"><a href="${esc(p.site_url)}" target="_blank" style="color:var(--acc)">${esc(p.site_url.replace('https://',''))}</a></div></div>` : ''}
       </div>
     </div>
     ${dash?.recent_work?.length ? `
@@ -686,7 +776,8 @@ async function loadProjectDetail(id){
           </div>
         </div>
         <div class="form-row">
-          <div class="form-field" style="flex:2"><label>Repo URL</label><input type="text" id="ef-repo-${id}" value="${esc(p.repo_url||'')}"></div>
+          <div class="form-field"><label>Repo URL</label><input type="text" id="ef-repo-${id}" value="${esc(p.repo_url||'')}"></div>
+          <div class="form-field"><label>Site URL</label><input type="text" id="ef-site-${id}" value="${esc(p.site_url||'')}"></div>
           <div class="form-field"><label>Phase</label><input type="text" id="ef-phase-${id}" value="${esc(p.phase||'')}"></div>
         </div>
         <div class="form-row">
@@ -712,6 +803,7 @@ async function submitEditProject(id){
     status: document.getElementById('ef-status-'+id).value,
     machine: document.getElementById('ef-machine-'+id).value || null,
     repo_url: document.getElementById('ef-repo-'+id).value || null,
+    site_url: document.getElementById('ef-site-'+id).value || null,
     phase: document.getElementById('ef-phase-'+id).value || null,
     notes: document.getElementById('ef-notes-'+id).value || null,
   };
@@ -805,6 +897,7 @@ async function submitAddProject(){
     status: document.getElementById('pf-status').value,
     machine: document.getElementById('pf-machine').value || null,
     repo_url: document.getElementById('pf-repo').value || null,
+    site_url: document.getElementById('pf-site').value || null,
     phase: document.getElementById('pf-phase').value || null,
     notes: document.getElementById('pf-notes').value || null,
   };
@@ -814,29 +907,50 @@ async function submitAddProject(){
     body: JSON.stringify(body),
   });
   toggleAddForm();
-  ['pf-name','pf-repo','pf-phase','pf-notes'].forEach(id => document.getElementById(id).value = '');
+  ['pf-name','pf-repo','pf-site','pf-phase','pf-notes'].forEach(id => document.getElementById(id).value = '');
   loadedTabs.delete('projects');
   await loadProjects();
 }
 
 function renderKanban(projects){
-  const cols = { research: [], development: [], running: [], deployed: [] };
-  const other = [];
+  const colKeys = ['research','development','running','deployed','paused','shipped'];
+  const cols = {};
+  colKeys.forEach(k => cols[k] = []);
   projects.forEach(p => {
     if (p.status in cols) cols[p.status].push(p);
-    else if (['paused','shipped'].includes(p.status)) cols.deployed.push(p);
-    else other.push(p);
+    else cols.deployed.push(p);
   });
-  const labels = { research:'Research', development:'Development', running:'Running', deployed:'Deployed' };
-  document.getElementById('kanban-board').innerHTML = Object.entries(cols).map(([k, ps]) => `
-    <div class="kcol">
+  const labels = { research:'Research', development:'Development', running:'Running', deployed:'Deployed', paused:'Paused', shipped:'Shipped' };
+  document.getElementById('kanban-board').innerHTML = colKeys.map(k => {
+    const ps = cols[k];
+    return `<div class="kcol" data-status="${k}" ondragover="event.preventDefault();this.style.outline='2px solid var(--acc)'" ondragleave="this.style.outline=''" ondrop="kanbanDrop(event,'${k}');this.style.outline=''">
       <div class="kcolhdr">${labels[k]} <span style="font-weight:400;color:var(--t3)">${ps.length}</span></div>
-      ${ps.map(p => `<div class="kcard"><div class="kcard-name">${esc(p.name)}</div><div class="kcard-meta">${esc([p.machine,p.platform,p.phase].filter(Boolean).join(' · '))}</div></div>`).join('')}
-    </div>`).join('');
+      ${ps.map(p => `<div class="kcard" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${p.id}')" style="cursor:grab">
+        <div class="kcard-name">${esc(p.name)}</div>
+        <div class="kcard-meta">${esc([p.machine,p.platform,p.phase].filter(Boolean).join(' · '))}</div>
+        <div style="margin-top:3px">${statusPill(p.status)}</div>
+      </div>`).join('')}
+    </div>`;
+  }).join('');
+}
+
+async function kanbanDrop(e, newStatus){
+  e.preventDefault();
+  const pid = parseInt(e.dataTransfer.getData('text/plain'));
+  if (!pid) return;
+  const proj = allProjects.find(p => p.id === pid);
+  if (!proj || proj.status === newStatus) return;
+  await fetch(`/api/projects/${pid}`, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({status: newStatus}),
+  });
+  loadedTabs.delete('projects');
+  await loadProjects();
+  renderKanban(allProjects);
 }
 
 function renderTimeline(projects){
-  // Simple gantt: distribute projects across Jan-Jun based on status + updated_at
   const statusBars = {
     research:'var(--bg3)', development:'var(--acc2)', running:'var(--pur2)',
     deployed:'var(--ok2)', paused:'var(--bg3)', shipped:'var(--ok2)'
@@ -849,16 +963,140 @@ function renderTimeline(projects){
     research:'var(--t3)', development:'var(--acc3)', running:'var(--pur3)',
     deployed:'var(--ok)', paused:'var(--t3)', shipped:'var(--ok)'
   };
-  document.getElementById('timeline-rows').innerHTML = projects.map((p, i) => {
-    const left = Math.round((i % 3) * 16) + '%';
-    const width = (p.status === 'deployed' || p.status === 'running') ? '100%' : (70 - (i%4)*10) + '%';
+
+  // Compute date range from project data
+  const now = new Date();
+  let earliest = now;
+  projects.forEach(p => {
+    const c = new Date((p.created_at||'').replace(' ','T')+'Z');
+    if (!isNaN(c) && c < earliest) earliest = c;
+  });
+  // Pad: start at 1st of earliest month, end at last day of current month
+  const rangeStart = new Date(earliest.getFullYear(), earliest.getMonth(), 1);
+  const rangeEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const totalMs = rangeEnd - rangeStart || 1;
+
+  // Build month headers
+  const months = [];
+  let cursor = new Date(rangeStart);
+  while (cursor <= rangeEnd) {
+    months.push(cursor.toLocaleString('en', {month:'short', year: cursor.getFullYear() !== now.getFullYear() ? '2-digit' : undefined}));
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  }
+  const mEl = document.getElementById('timeline-months');
+  mEl.style.gridTemplateColumns = `repeat(${months.length},1fr)`;
+  mEl.innerHTML = months.map(m => `<span>${m}</span>`).join('');
+
+  // Render bars
+  document.getElementById('timeline-rows').innerHTML = projects.map(p => {
+    const created = new Date((p.created_at||'').replace(' ','T')+'Z');
+    const updated = new Date((p.updated_at||'').replace(' ','T')+'Z');
+    const start = isNaN(created) ? rangeStart : created;
+    // Running/deployed projects extend to now
+    const end = ['running','deployed'].includes(p.status) ? now : (isNaN(updated) ? now : updated);
+    const leftPct = Math.max(0, ((start - rangeStart) / totalMs) * 100);
+    const widthPct = Math.max(2, ((end - start) / totalMs) * 100);
+    const label = p.phase || p.status;
     return `<div class="tbar-row">
       <div class="tbar-label">${esc(p.name)}</div>
       <div class="tbar-track">
-        <div class="tbar" style="left:${left};width:${width};background:${statusBars[p.status]};border:0.5px solid ${statusBorders[p.status]};color:${statusText[p.status]}">${esc(p.phase || p.status)}</div>
+        <div class="tbar" style="left:${leftPct.toFixed(1)}%;width:${widthPct.toFixed(1)}%;background:${statusBars[p.status]};border:0.5px solid ${statusBorders[p.status]};color:${statusText[p.status]}">${esc(label)}</div>
       </div>
     </div>`;
   }).join('');
+}
+
+// ── github repos ──────────────────────────────────────────────────────────
+let untrackedOpen = false;
+function toggleUntracked(){
+  untrackedOpen = !untrackedOpen;
+  document.getElementById('untracked-panel').style.display = untrackedOpen ? 'block' : 'none';
+  document.getElementById('untracked-chev').style.transform = untrackedOpen ? 'rotate(90deg)' : '';
+  if (untrackedOpen) loadUntracked();
+}
+
+let createRepoOpen = false;
+function toggleCreateRepo(){
+  createRepoOpen = !createRepoOpen;
+  document.getElementById('create-repo-panel').style.display = createRepoOpen ? 'block' : 'none';
+  document.getElementById('create-repo-chev').style.transform = createRepoOpen ? 'rotate(90deg)' : '';
+}
+
+async function loadUntracked(){
+  const el = document.getElementById('untracked-list');
+  el.innerHTML = '<div class="loading">Loading…</div>';
+  try {
+    const repos = await fetch('/api/github/untracked').then(r => r.json());
+    document.getElementById('untracked-label').textContent = `Untracked GitHub repos (${repos.length})`;
+    if (!repos.length) {
+      el.innerHTML = '<div class="empty" style="padding:8px 0">All repos are tracked as projects.</div>';
+      return;
+    }
+    el.innerHTML = repos.map(r => `
+      <div class="prow" style="margin-bottom:4px">
+        <div class="prow-summary" style="padding:8px 12px">
+          <span class="pname" style="font-size:12px">${esc(r.name)}</span>
+          ${r.language ? `<span class="pill gray" style="font-size:9px">${esc(r.language)}</span>` : ''}
+          ${r.private ? '<span class="pill info" style="font-size:9px">private</span>' : ''}
+          <span class="pmeta" style="font-size:10px;color:var(--t3)">${esc((r.description||'').substring(0,60))}</span>
+          <span class="pmeta" style="margin-left:auto">${r.pushed_at ? timeSince(r.pushed_at) : ''}</span>
+          <button class="btn btn-acc" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();adoptRepo('${esc(r.full_name)}')">+ Add</button>
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="empty">Failed to load repos.</div>';
+  }
+}
+
+async function adoptRepo(fullName){
+  const status = prompt('Project status? (research / development / running / deployed)', 'development');
+  if (!status) return;
+  try {
+    const resp = await fetch('/api/github/adopt', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({repo_full_name: fullName, status}),
+    });
+    if (!resp.ok) { alert('Failed: ' + (await resp.json()).detail); return; }
+    loadedTabs.delete('projects');
+    await loadProjects();
+    await loadUntracked();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function refreshGithubRepos(){
+  const el = document.getElementById('untracked-list');
+  el.innerHTML = '<div class="loading">Scanning GitHub…</div>';
+  await fetch('/api/github/refresh', {method:'POST'});
+  await loadUntracked();
+}
+
+async function createGithubRepo(){
+  const name = document.getElementById('cr-name').value.trim();
+  if (!name) { alert('Name required'); return; }
+  try {
+    const resp = await fetch('/api/github/create', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        name,
+        description: document.getElementById('cr-desc').value || null,
+        private: document.getElementById('cr-private').value === '1',
+        status: document.getElementById('cr-status').value,
+        machine: document.getElementById('cr-machine').value || null,
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      alert('Failed: ' + (err.detail || 'unknown error'));
+      return;
+    }
+    document.getElementById('cr-name').value = '';
+    document.getElementById('cr-desc').value = '';
+    loadedTabs.delete('projects');
+    await loadProjects();
+    alert('Repo + project created!');
+  } catch(e) { alert('Error: ' + e.message); }
 }
 
 // ── worklog ────────────────────────────────────────────────────────────────
@@ -1008,6 +1246,90 @@ async function refreshDeploys(){
   btn.disabled = false;
 }
 
+// ── mnemos ────────────────────────────────────────────────────────────────
+async function loadMnemos(){
+  try {
+    const data = await fetch('/api/mnemos/stats').then(r => r.json());
+    if (data.status === 'unavailable') {
+      document.getElementById('mn-count').textContent = 'Mnemos — unavailable';
+      return;
+    }
+    document.getElementById('mn-total').textContent = (data.total||0).toLocaleString();
+    document.getElementById('mn-range').textContent = (data.oldest_date && data.newest_date)
+      ? `${data.oldest_date} → ${data.newest_date}` : '—';
+    document.getElementById('mn-undated').textContent = (data.undated||0).toLocaleString();
+    document.getElementById('mn-updated').textContent = data.timestamp || '—';
+    document.getElementById('mn-count').textContent = `Mnemos — ${(data.total||0).toLocaleString()} documents`;
+
+    // Composition table
+    const src = document.getElementById('mn-sources');
+    if (data.by_source && Object.keys(data.by_source).length) {
+      const total = data.total || 1;
+      src.innerHTML = Object.entries(data.by_source)
+        .sort((a,b) => b[1]-a[1])
+        .map(([k,v]) => `<tr>
+          <td><span class="pill info" style="font-size:9px">${esc(k)}</span></td>
+          <td class="mono">${v.toLocaleString()}</td>
+          <td class="mono">${Math.round(v/total*100)}%</td>
+        </tr>`).join('');
+    } else { src.innerHTML = '<tr><td colspan="3" class="empty">No data</td></tr>'; }
+
+    // Recent activity
+    const act = document.getElementById('mn-activity');
+    if (data.by_date && Object.keys(data.by_date).length) {
+      const recent = Object.entries(data.by_date).sort((a,b) => b[0].localeCompare(a[0])).slice(0,7);
+      act.innerHTML = recent.map(([d,c]) => `<tr>
+        <td class="mono" style="font-size:11px">${d}</td>
+        <td class="mono">${c.toLocaleString()}</td>
+      </tr>`).join('');
+    } else { act.innerHTML = '<tr><td colspan="2" class="empty">No recent activity</td></tr>'; }
+  } catch(e) {
+    document.getElementById('mn-count').textContent = 'Mnemos — error loading';
+  }
+}
+
+async function refreshMnemos(){
+  const btn = document.querySelector('#mnemos .btn');
+  const orig = btn.textContent;
+  btn.textContent = '↻ Loading…';
+  btn.disabled = true;
+  loadedTabs.delete('mnemos');
+  await loadMnemos();
+  loadedTabs.add('mnemos');
+  btn.textContent = orig;
+  btn.disabled = false;
+}
+
+async function searchMnemos(){
+  const q = document.getElementById('mn-query').value.trim();
+  if (!q) return;
+  const filter = document.getElementById('mn-filter').value;
+  const el = document.getElementById('mn-results');
+  el.innerHTML = '<div class="loading">Searching…</div>';
+  try {
+    const data = await fetch('/api/mnemos/search', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({query: q, top: 8, filter}),
+    }).then(r => r.json());
+    if (!data.hits || !data.hits.length) {
+      el.innerHTML = '<div class="empty" style="padding:12px 0">No results found.</div>';
+      return;
+    }
+    el.innerHTML = data.hits.map(h => `
+      <div style="background:var(--bg2);border:0.5px solid var(--bd);border-radius:6px;padding:10px 12px;margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span class="pill info" style="font-size:9px">${esc(h.source||'')}</span>
+          <span class="mono" style="font-size:10px;color:var(--t3)">${h.score ? (h.score*100).toFixed(0)+'%' : ''}</span>
+        </div>
+        <div style="font-size:11px;color:var(--t2);line-height:1.5;white-space:pre-wrap;max-height:120px;overflow-y:auto">${esc(h.document||h.preview||'')}</div>
+      </div>
+    `).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="empty">Search failed.</div>';
+  }
+}
+
 // ── mcp status ────────────────────────────────────────────────────────────
 async function loadMcp(){
   const svcs = await fetch('/api/mcp').then(r => r.json());
@@ -1059,9 +1381,10 @@ async function refreshMcp(){
 
 // ── sentinel ──────────────────────────────────────────────────────────────
 async function loadSentinel(){
-  const [overview, blocklist] = await Promise.all([
+  const [overview, blocklist, events] = await Promise.all([
     fetch('/api/sentinel/overview').then(r => r.json()).catch(() => null),
     fetch('/api/sentinel/blocklist').then(r => r.json()).catch(() => ({count:0,ips:[]})),
+    fetch('/api/sentinel/events?hours=168&limit=50').then(r => r.json()).catch(() => ({events:[]})),
   ]);
   if (!overview || !overview.stats) {
     document.getElementById('st-events-24h').textContent = '—';
@@ -1089,6 +1412,25 @@ async function loadSentinel(){
     </tr>`).join('');
   } else { ptb.innerHTML = '<tr><td colspan="2" class="empty">No events</td></tr>'; }
 
+  // Recent events table
+  const etb = document.getElementById('st-events');
+  if (events.events && events.events.length) {
+    etb.innerHTML = events.events.map(e => {
+      const ts = e.timestamp ? e.timestamp.replace('T',' ').substring(0,16) : '';
+      const scoreCls = e.threat_score >= 80 ? 'err' : e.threat_score >= 40 ? 'warn' : 'gray';
+      return `<tr>
+        <td class="mono" style="font-size:10px">${esc(ts)}</td>
+        <td class="mono" style="font-size:11px">${esc(e.ip)}</td>
+        <td style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px" title="${esc(e.path)}">${esc(e.path)}</td>
+        <td class="mono" style="font-size:10px">${esc(e.method)}</td>
+        <td class="mono">${e.status_code}</td>
+        <td><span class="pill info" style="font-size:9px">${esc(e.project||'—')}</span></td>
+        <td><span class="pill ${scoreCls}" style="font-size:9px">${e.threat_score}</span></td>
+        <td>${e.reported ? '<span class="pill ok" style="font-size:8px">reported</span>' : ''}</td>
+      </tr>`;
+    }).join('');
+  } else { etb.innerHTML = '<tr><td colspan="8" class="empty">No recent events</td></tr>'; }
+
   document.getElementById('st-bl-count').textContent = `(${blocklist.count} IPs)`;
   const blEl = document.getElementById('st-blocklist');
   if (blocklist.ips && blocklist.ips.length) {
@@ -1108,13 +1450,14 @@ async function refreshSentinel(){
 
 // ── budget ─────────────────────────────────────────────────────────────────
 async function loadBudget(){
-  const [summary, budget, apis, uSummary, uModels, uKeys] = await Promise.all([
+  const [summary, budget, apis, uSummary, uModels, uKeys, apiByProject] = await Promise.all([
     fetch('/api/budget/summary').then(r => r.json()),
     fetch('/api/budget').then(r => r.json()),
     fetch('/api/apis').then(r => r.json()),
     fetch('/api/usage/summary').then(r => r.json()).catch(() => null),
     fetch('/api/usage/by-model').then(r => r.json()).catch(() => []),
     fetch('/api/usage/by-key').then(r => r.json()).catch(() => []),
+    fetch('/api/apis/costs-by-project').then(r => r.json()).catch(() => []),
   ]);
   // Summary cards
   const fly    = budget.filter(b => b.platform === 'fly.io' && b.active).reduce((a,b) => a+b.cost_gbp, 0);
@@ -1152,6 +1495,18 @@ async function loadBudget(){
       <td class="mono">€${k.cost_usd.toFixed(2)}</td>
     </tr>`).join('');
   } else { ktb.innerHTML = '<tr><td colspan="4" class="empty">No data — import CSV</td></tr>'; }
+
+  // API costs by project
+  const ptbody = document.getElementById('api-project-tbody');
+  if (apiByProject.length) {
+    ptbody.innerHTML = apiByProject.map(p => `<tr>
+      <td style="color:var(--text);font-weight:500">${esc(p.project_name)}</td>
+      <td class="mono">${fmtTokens(p.tokens_in)}</td>
+      <td class="mono">${fmtTokens(p.tokens_out)}</td>
+      <td class="mono">${(p.calls||0).toLocaleString()}</td>
+      <td class="mono">€${(p.cost_eur||0).toFixed(2)}</td>
+    </tr>`).join('');
+  } else { ptbody.innerHTML = '<tr><td colspan="5" class="empty">No API usage attributed yet</td></tr>'; }
 
   // API table
   const tbody = document.getElementById('api-tbody');

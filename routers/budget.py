@@ -196,6 +196,45 @@ def api_projects(api_id: int):
     return [row_to_dict(r) for r in rows]
 
 
+@router.get("/api/apis/costs-by-project")
+def api_costs_by_project(days: int = 30):
+    """Aggregate api_usage costs grouped by project, last N days."""
+    with db() as conn:
+        rows = conn.execute("""
+            SELECT p.id as project_id, p.name as project_name,
+                   COALESCE(SUM(u.cost_gbp), 0) as cost_eur,
+                   COALESCE(SUM(u.tokens_in), 0) as tokens_in,
+                   COALESCE(SUM(u.tokens_out), 0) as tokens_out,
+                   COALESCE(SUM(u.call_count), 0) as calls
+            FROM api_usage u
+            JOIN projects p ON p.id = u.project_id
+            WHERE u.recorded_at >= datetime('now', ? || ' days')
+            GROUP BY p.id
+            ORDER BY cost_eur DESC
+        """, (f"-{days}",)).fetchall()
+        unattr = conn.execute("""
+            SELECT COALESCE(SUM(cost_gbp), 0) as cost_eur,
+                   COALESCE(SUM(tokens_in), 0) as tokens_in,
+                   COALESCE(SUM(tokens_out), 0) as tokens_out,
+                   COALESCE(SUM(call_count), 0) as calls
+            FROM api_usage
+            WHERE project_id IS NULL
+              AND recorded_at >= datetime('now', ? || ' days')
+        """, (f"-{days}",)).fetchone()
+    result = [row_to_dict(r) for r in rows]
+    ua = row_to_dict(unattr)
+    if ua["cost_eur"] > 0 or ua["calls"] > 0:
+        result.append({
+            "project_id": None,
+            "project_name": "Unattributed",
+            "cost_eur": ua["cost_eur"],
+            "tokens_in": ua["tokens_in"],
+            "tokens_out": ua["tokens_out"],
+            "calls": ua["calls"],
+        })
+    return result
+
+
 @router.post("/api/apis/map", status_code=201)
 def map_api_project(m: ApiProjectMapIn):
     with db() as conn:

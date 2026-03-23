@@ -431,6 +431,64 @@ async def poll_github_loc() -> None:
         log.warning(f"[github-loc] poll failed: {exc}")
 
 
+# ── GitHub repo discovery ────────────────────────────────────────────────────
+
+async def poll_github_repos() -> None:
+    """Cache all repos for the GitHub user. Runs every 6 hours."""
+    if not GITHUB_TOKEN:
+        log.debug("GITHUB_PAT not set — skipping GitHub repos poll")
+        return
+    try:
+        headers = {
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json",
+        }
+        all_repos = []
+        page = 1
+        async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+            while True:
+                resp = await client.get(
+                    f"{GITHUB_API}/user/repos",
+                    params={"per_page": 100, "page": page, "sort": "pushed", "affiliation": "owner"},
+                )
+                if resp.status_code != 200:
+                    break
+                batch = resp.json()
+                if not batch:
+                    break
+                all_repos.extend(batch)
+                page += 1
+
+        with db() as conn:
+            for r in all_repos:
+                conn.execute("""
+                    INSERT INTO github_repos
+                        (id, full_name, name, description, html_url, language,
+                         private, fork, archived, stars, pushed_at, created_at, checked_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    ON CONFLICT(full_name) DO UPDATE SET
+                        description = excluded.description,
+                        language    = excluded.language,
+                        private     = excluded.private,
+                        fork        = excluded.fork,
+                        archived    = excluded.archived,
+                        stars       = excluded.stars,
+                        pushed_at   = excluded.pushed_at,
+                        checked_at  = excluded.checked_at
+                """, (
+                    r["id"], r["full_name"], r["name"], r.get("description"),
+                    r["html_url"], r.get("language"),
+                    int(r.get("private", False)), int(r.get("fork", False)),
+                    int(r.get("archived", False)), r.get("stargazers_count", 0),
+                    (r.get("pushed_at") or "")[:19].replace("T", " ") or None,
+                    (r.get("created_at") or "")[:19].replace("T", " ") or None,
+                ))
+
+        log.info("[github-repos] cached %d repos", len(all_repos))
+    except Exception as exc:
+        log.warning("[github-repos] poll failed: %s", exc)
+
+
 # ── scheduler setup ──────────────────────────────────────────────────────────
 
 def setup_scheduler() -> AsyncIOScheduler:
@@ -438,6 +496,7 @@ def setup_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(poll_railway,     "interval", seconds=60,   id="railway",     replace_existing=True)
     scheduler.add_job(poll_fly_billing, "interval", seconds=3600, id="fly_billing", replace_existing=True)
     scheduler.add_job(poll_github_loc,  "interval", seconds=21600, id="github_loc", replace_existing=True)
+    scheduler.add_job(poll_github_repos,"interval", seconds=21600, id="github_repos", replace_existing=True)
     return scheduler
 
 

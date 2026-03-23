@@ -322,6 +322,24 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_decisions_status ON decisions(status, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_decisions_project ON decisions(project_id)",
     "CREATE INDEX IF NOT EXISTS idx_agent_events_agent ON agent_events(agent_id, created_at)",
+    # 015 — GitHub repo cache
+    """
+    CREATE TABLE IF NOT EXISTS github_repos (
+        id              INTEGER PRIMARY KEY,
+        full_name       TEXT NOT NULL UNIQUE,
+        name            TEXT NOT NULL,
+        description     TEXT,
+        html_url        TEXT NOT NULL,
+        language        TEXT,
+        private         INTEGER NOT NULL DEFAULT 0,
+        fork            INTEGER NOT NULL DEFAULT 0,
+        archived        INTEGER NOT NULL DEFAULT 0,
+        stars           INTEGER NOT NULL DEFAULT 0,
+        pushed_at       TEXT,
+        created_at      TEXT,
+        checked_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
 ]
 
 

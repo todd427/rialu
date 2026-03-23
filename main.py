@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.routing import Mount
@@ -62,7 +63,7 @@ from fastapi.responses import RedirectResponse
 class CanonicalHostMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         host = request.headers.get("host", "")
-        # Allow agent, WS, and MCP connections on any hostname
+        # Allow agent, WS, API, and MCP connections on any hostname
         if request.url.path.startswith("/ws/") or request.url.path.startswith("/api/") or request.url.path.startswith("/mcp"):
             return await call_next(request)
         if host and "rialu.ie" not in host and not TEST_MODE:
@@ -71,6 +72,13 @@ class CanonicalHostMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(CanonicalHostMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ── routers ──────────────────────────────────────────────────────────────────
 

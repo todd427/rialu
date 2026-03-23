@@ -47,6 +47,8 @@ python seed_config.py
 - `mcp_status.py` — Health checker for all 4 MCP connectors
 - `milestone_review.py` — Automated milestone verification against GitHub repos
 - `machines.py` — rialu-agent heartbeats, action queue, WebSocket terminal
+- `mnemos.py` — Mnemos memory integration (stats, search, ingest proxy)
+- `github.py` — GitHub repo discovery, adoption, and repo creation
 - `keys.py` — Encrypted key vault with audit logging
 
 **Pollers** (`poller.py`):
@@ -54,6 +56,7 @@ python seed_config.py
 - Railway GraphQL (60s) — service/deploy status
 - Fly.io billing (1hr) — cost estimation per app
 - GitHub LOC (6hr) — commit stats per project
+- GitHub repos (6hr) — cache all user repos, detect untracked
 
 **Frontend:** Single-file vanilla JS SPA (`static/index.html`). Tabs: Projects, Work log, Machines, Deployments, Sentinel, Budget & APIs, MCP, Keys. 4 themes (dark/light/slate/terminal).
 
@@ -71,11 +74,11 @@ python seed_config.py
 
 ## Fly Secrets Required
 
-`FLY_API_TOKEN`, `RAILWAY_API_TOKEN`, `GITHUB_PAT`, `RIALU_VAULT_KEY`, `RIALU_AGENT_KEY`, `SENTINEL_URL`, `SENTINEL_API_KEY`
+`FLY_API_TOKEN`, `RAILWAY_API_TOKEN`, `GITHUB_PAT`, `RIALU_VAULT_KEY`, `RIALU_AGENT_KEY`, `SENTINEL_URL`, `SENTINEL_API_KEY`, `MNEMOS_API_KEY`
 
-## Current State (2026-03-22)
+## Current State (2026-03-23)
 
 - **Phase 1-2:** Complete (foundation, pollers, SPA, machine agents, key vault)
-- **Phase 3:** Partially complete. Done: Anthropic usage tracking, MCP status tab, Sentinel dashboard, GitHub LOC poller, project dashboard, milestone auto-review, budget refresh. Remaining: Timeline view, Kanban view, API cost attribution per project
-- **Phase 4:** Not started. CSV exports, Mnemos integration, rialu-agent OAuth 2.1
-- **Tests:** 128 passing across 15 test files
+- **Phase 3:** Complete. Anthropic usage tracking, MCP status tab, Sentinel dashboard, GitHub LOC poller, project dashboard, milestone auto-review, budget refresh, Timeline view (real date-based gantt), Kanban view (drag-and-drop status changes), API cost attribution per project
+- **Phase 4:** Partially complete. Done: Mnemos integration (stats dashboard, search, auto-ingest sessions/milestones), GitHub repo discovery + adoption + creation. Remaining: CSV exports, rialu-agent OAuth 2.1
+- **Tests:** 148 passing across 17 test files

@@ -46,8 +46,8 @@ async def overview():
 
 @router.get("/events")
 async def recent_events(hours: int = 24, limit: int = 50):
-    """Proxy recent events from Sentinel."""
-    return await _sentinel_get(f"/ip/stats") or {}
+    """Proxy recent individual events from Sentinel."""
+    return await _sentinel_get(f"/events/recent?hours={hours}&limit={limit}") or {"events": [], "count": 0}
 
 
 @router.get("/ip/{ip}")
