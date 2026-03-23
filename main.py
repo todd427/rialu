@@ -9,6 +9,8 @@ Startup sequence:
 Auth: Cloudflare Access injects Cf-Access-Authenticated-User-Email.
       The app trusts that header; no auth code needed here.
       In local dev (no CF Access), auth is bypassed.
+
+MCP: FastMCP mounted at /mcp — Bearer token via RIALU_MCP_KEY env var.
 """
 
 import os
@@ -18,11 +20,13 @@ from typing import Optional
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.routing import Mount
 
 from db import init_db
 from poller import setup_scheduler
 from routers import projects, worklog, deployments, budget, machines, keys, mcp_status, usage, sentinel, milestone_review
 from ws_hub import hub
+import mcp_server as _mcp
 
 TEST_MODE = os.environ.get("RIALU_TEST") == "1"
 
@@ -57,8 +61,12 @@ from fastapi.responses import RedirectResponse
 class CanonicalHostMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         host = request.headers.get("host", "")
-        # Allow agent WebSocket connections on any hostname
-        if request.url.path.startswith("/ws/agent") or request.url.path.startswith("/api/agent/"):
+        # Allow agent + MCP connections on any hostname
+        if (
+            request.url.path.startswith("/ws/agent")
+            or request.url.path.startswith("/api/agent/")
+            or request.url.path.startswith("/mcp")
+        ):
             return await call_next(request)
         if host and "rialu.ie" not in host and not TEST_MODE:
             return RedirectResponse(f"https://rialu.ie{request.url.path}", status_code=301)
@@ -121,9 +129,14 @@ if os.path.isdir(STATIC_DIR):
 
     @app.get("/{full_path:path}", response_class=FileResponse)
     def spa_fallback(full_path: str):
-        if full_path.startswith("api/"):
+        if full_path.startswith("api/") or full_path.startswith("mcp"):
             return JSONResponse({"detail": "Not found"}, status_code=404)
         return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
+
+# ── MCP — mount last so FastAPI routes take priority ─────────────────────────
+
+app.router.routes.append(Mount("/mcp", app=_mcp.get_asgi_app()))
 
 
 if __name__ == "__main__":
