@@ -24,8 +24,9 @@ from starlette.routing import Mount
 
 from db import init_db
 from poller import setup_scheduler
-from routers import projects, worklog, deployments, budget, machines, keys, mcp_status, usage, sentinel, milestone_review
+from routers import projects, worklog, deployments, budget, machines, keys, mcp_status, usage, sentinel, milestone_review, mnemos, github, decisions, agents
 from ws_hub import hub
+from faire_hub import faire_hub
 import mcp_server as _mcp
 
 TEST_MODE = os.environ.get("RIALU_TEST") == "1"
@@ -61,12 +62,8 @@ from fastapi.responses import RedirectResponse
 class CanonicalHostMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         host = request.headers.get("host", "")
-        # Allow agent + MCP connections on any hostname
-        if (
-            request.url.path.startswith("/ws/agent")
-            or request.url.path.startswith("/api/agent/")
-            or request.url.path.startswith("/mcp")
-        ):
+        # Allow agent, WS, and MCP connections on any hostname
+        if request.url.path.startswith("/ws/") or request.url.path.startswith("/api/") or request.url.path.startswith("/mcp"):
             return await call_next(request)
         if host and "rialu.ie" not in host and not TEST_MODE:
             return RedirectResponse(f"https://rialu.ie{request.url.path}", status_code=301)
@@ -87,6 +84,10 @@ app.include_router(mcp_status.router)
 app.include_router(usage.router)
 app.include_router(sentinel.router)
 app.include_router(milestone_review.router)
+app.include_router(mnemos.router)
+app.include_router(github.router)
+app.include_router(decisions.router)
+app.include_router(agents.router)
 
 
 # ── WebSocket routes ─────────────────────────────────────────────────────────
@@ -107,6 +108,20 @@ async def ws_terminal(websocket: WebSocket, machine: str):
 async def ws_pane(websocket: WebSocket, machine: str, pane_id: str):
     """Browser pane attachment — streams an existing tmux pane."""
     await hub.handle_browser_terminal(websocket, machine, pane_id=pane_id)
+
+
+@app.websocket("/ws/{token}")
+async def ws_faire(websocket: WebSocket, token: str):
+    """Faire desktop client — broadcast hub for project/decision events."""
+    if not await faire_hub.connect(websocket, token):
+        return
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        faire_hub.disconnect(websocket)
 
 
 # ── health ───────────────────────────────────────────────────────────────────

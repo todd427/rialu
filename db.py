@@ -270,6 +270,58 @@ MIGRATIONS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_anthropic_usage_date ON anthropic_usage(usage_date)",
+    # 009 — project site URL
+    "ALTER TABLE projects ADD COLUMN site_url TEXT",
+    # 010 — agents table (Faire Phase 1)
+    """
+    CREATE TABLE IF NOT EXISTS agents (
+        id          TEXT PRIMARY KEY,
+        machine     TEXT NOT NULL,
+        name        TEXT NOT NULL,
+        status      TEXT NOT NULL DEFAULT 'offline',
+        last_seen   TEXT,
+        config      TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    # 011 — decisions queue (Faire Phase 1)
+    """
+    CREATE TABLE IF NOT EXISTS decisions (
+        id            TEXT PRIMARY KEY,
+        project_id    INTEGER NOT NULL REFERENCES projects(id),
+        trigger_type  TEXT NOT NULL,
+        priority      INTEGER DEFAULT 5,
+        status        TEXT DEFAULT 'pending',
+        payload       TEXT NOT NULL,
+        context_refs  TEXT,
+        agent_id      TEXT REFERENCES agents(id),
+        timeout_secs  INTEGER DEFAULT 300,
+        defer_until   TEXT,
+        response      TEXT,
+        responded_by  TEXT,
+        created_at    TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+        resolved_at   TEXT
+    )
+    """,
+    # 012 — agent event stream (Faire Phase 1)
+    """
+    CREATE TABLE IF NOT EXISTS agent_events (
+        id          TEXT PRIMARY KEY,
+        agent_id    TEXT NOT NULL REFERENCES agents(id),
+        project_id  INTEGER REFERENCES projects(id),
+        event_type  TEXT NOT NULL,
+        payload     TEXT,
+        created_at  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    )
+    """,
+    # 013 — extend projects for Faire
+    "ALTER TABLE projects ADD COLUMN cc_session_id TEXT",
+    "ALTER TABLE projects ADD COLUMN cost_limit_hr REAL DEFAULT 1.0",
+    "ALTER TABLE projects ADD COLUMN auto_approve_rules TEXT",
+    # 014 — Faire indexes
+    "CREATE INDEX IF NOT EXISTS idx_decisions_status ON decisions(status, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_decisions_project ON decisions(project_id)",
+    "CREATE INDEX IF NOT EXISTS idx_agent_events_agent ON agent_events(agent_id, created_at)",
 ]
 
 

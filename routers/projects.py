@@ -2,12 +2,28 @@
 routers/projects.py — CRUD for projects, milestones, and sessions.
 """
 
+import asyncio
 import re
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from fastapi import BackgroundTasks
 from db import db, row_to_dict
+
+
+def _broadcast_project(project_id: int, data: dict):
+    """Schedule a Faire hub broadcast for a project mutation."""
+    from faire_hub import faire_hub
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(faire_hub.broadcast({
+            "event": "project.update",
+            "project_id": project_id,
+            "payload": data,
+        }))
+    except RuntimeError:
+        pass
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -27,6 +43,7 @@ class ProjectIn(BaseModel):
     status: str = "development"
     notes: Optional[str] = None
     repo_url: Optional[str] = None
+    site_url: Optional[str] = None
     machine: Optional[str] = None
     platform: Optional[str] = None
 
@@ -37,6 +54,7 @@ class ProjectUpdate(BaseModel):
     status: Optional[str] = None
     notes: Optional[str] = None
     repo_url: Optional[str] = None
+    site_url: Optional[str] = None
     machine: Optional[str] = None
     platform: Optional[str] = None
 
@@ -82,14 +100,16 @@ def create_project(p: ProjectIn):
         if existing:
             slug = f"{slug}-{existing['id']}"
         cur = conn.execute(
-            """INSERT INTO projects (name, slug, phase, status, notes, repo_url, machine, platform)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (p.name, slug, p.phase, p.status, p.notes, p.repo_url, p.machine, p.platform),
+            """INSERT INTO projects (name, slug, phase, status, notes, repo_url, site_url, machine, platform)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (p.name, slug, p.phase, p.status, p.notes, p.repo_url, p.site_url, p.machine, p.platform),
         )
         row = conn.execute(
             "SELECT * FROM projects WHERE id = ?", (cur.lastrowid,)
         ).fetchone()
-    return row_to_dict(row)
+    result = row_to_dict(row)
+    _broadcast_project(result["id"], result)
+    return result
 
 
 @router.get("/{project_id}")
@@ -124,11 +144,14 @@ def update_project(project_id: int, p: ProjectUpdate):
         ).fetchone()
     if not row:
         raise HTTPException(404, "Project not found")
-    return row_to_dict(row)
+    result = row_to_dict(row)
+    _broadcast_project(project_id, result)
+    return result
 
 
 @router.delete("/{project_id}", status_code=204)
 def delete_project(project_id: int):
+    _broadcast_project(project_id, {"id": project_id, "deleted": True})
     with db() as conn:
         conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
 
@@ -219,7 +242,7 @@ def create_milestone(project_id: int, m: MilestoneIn):
 
 
 @router.put("/milestones/{milestone_id}")
-def update_milestone(milestone_id: int, m: MilestoneUpdate):
+def update_milestone(milestone_id: int, m: MilestoneUpdate, bg: BackgroundTasks):
     fields = {k: v for k, v in m.model_dump().items() if v is not None}
     if not fields:
         raise HTTPException(400, "No fields to update")
@@ -234,8 +257,17 @@ def update_milestone(milestone_id: int, m: MilestoneUpdate):
         row = conn.execute(
             "SELECT * FROM milestones WHERE id = ?", (milestone_id,)
         ).fetchone()
-    if not row:
-        raise HTTPException(404, "Milestone not found")
+        if not row:
+            raise HTTPException(404, "Milestone not found")
+        # Ingest milestone completion to Mnemos
+        if m.done and row["done"]:
+            proj = conn.execute(
+                "SELECT name FROM projects WHERE id = ?", (row["project_id"],)
+            ).fetchone()
+            if proj:
+                from routers.mnemos import ingest_activity
+                text = f"Milestone completed on {proj['name']}: {row['title']}"
+                bg.add_task(ingest_activity, f"{proj['name']} milestone {milestone_id}", text)
     return row_to_dict(row)
 
 
@@ -248,7 +280,7 @@ def delete_milestone(milestone_id: int):
 # ── sessions ──────────────────────────────────────────────────────────────────
 
 @router.post("/{project_id}/sessions", status_code=201)
-def create_session(project_id: int, s: SessionIn):
+def create_session(project_id: int, s: SessionIn, bg: BackgroundTasks):
     with db() as conn:
         cur = conn.execute(
             """INSERT INTO sessions (project_id, session_type, notes, duration_minutes)
@@ -265,9 +297,19 @@ def create_session(project_id: int, s: SessionIn):
         row = conn.execute(
             "SELECT * FROM sessions WHERE id = ?", (cur.lastrowid,)
         ).fetchone()
+        proj = conn.execute(
+            "SELECT name FROM projects WHERE id = ?", (project_id,)
+        ).fetchone()
         # bump project updated_at
         conn.execute(
             "UPDATE projects SET updated_at = datetime('now') WHERE id = ?",
             (project_id,),
         )
+    # Ingest to Mnemos in background
+    if proj:
+        from routers.mnemos import ingest_activity
+        pname = proj["name"]
+        dur = f" ({s.duration_minutes}m)" if s.duration_minutes else ""
+        text = f"Work session on {pname}: {s.session_type}{dur}. {s.notes or ''}"
+        bg.add_task(ingest_activity, f"{pname} session {row_to_dict(row)['id']}", text)
     return row_to_dict(row)
