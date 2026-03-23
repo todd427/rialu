@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from db import db, row_to_dict
+from faire_hub import faire_hub
 from ws_hub import hub
 
 router = APIRouter(prefix="/api", tags=["machines"])
@@ -109,6 +110,20 @@ async def agent_heartbeat(request: Request):
                 json.dumps(data.get("repos", [])),
             ),
         )
+    # Broadcast to Faire clients
+    await faire_hub.broadcast({
+        "event": "agent.heartbeat",
+        "agent_id": machine,
+        "payload": {
+            "machine_name": machine,
+            "cpu_pct": data.get("cpu_pct"),
+            "ram_pct": data.get("ram_pct"),
+            "gpu_pct": data.get("gpu_pct"),
+            "processes": data.get("processes", []),
+            "repos": data.get("repos", []),
+        },
+    })
+
     return {"status": "accepted", "machine": machine}
 
 
