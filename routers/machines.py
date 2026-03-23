@@ -132,8 +132,8 @@ async def agent_result(request: Request):
     return {"status": "updated", "action_id": action_id}
 
 
-@router.post("/agent/action", status_code=201)
-async def agent_action(payload: ActionIn):
+@router.post("/agent/action", status_code=201, dependencies=[Depends(verify_hmac)])
+async def agent_action(request: Request, payload: ActionIn):
     """Queue an action and forward to agent via WebSocket if connected."""
     with db() as conn:
         cur = conn.execute(

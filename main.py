@@ -76,8 +76,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"],
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$",
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # ── routers ──────────────────────────────────────────────────────────────────

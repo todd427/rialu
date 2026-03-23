@@ -10,9 +10,10 @@ import uuid
 from typing import Optional
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Header, Request
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from pydantic import BaseModel
 
+from auth import verify_faire_token
 from db import db, row_to_dict
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -28,7 +29,7 @@ def _verify_agent_sig(body: bytes, sig: Optional[str]) -> bool:
     return hmac.compare_digest(expected, sig)
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(verify_faire_token)])
 def list_agents():
     with db() as conn:
         rows = conn.execute(
@@ -50,12 +51,10 @@ async def ingest_event(
     request: Request,
     x_rialu_sig: Optional[str] = Header(None),
 ):
-    # HMAC verification (optional — skip if no key configured or no sig sent)
+    # HMAC verification — required when RIALU_AGENT_KEY is set
     body = await request.body()
-    secret = os.environ.get("RIALU_AGENT_KEY", "")
-    if secret and x_rialu_sig:
-        if not _verify_agent_sig(body, x_rialu_sig):
-            raise HTTPException(403, "Invalid signature")
+    if not _verify_agent_sig(body, x_rialu_sig):
+        raise HTTPException(403, "Invalid signature")
 
     event_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -89,7 +88,7 @@ async def ingest_event(
 
 # ── Agent Events (read) ────────────────────────────────────────────────────
 
-@router.get("/events")
+@router.get("/events", dependencies=[Depends(verify_faire_token)])
 def list_agent_events(
     project_id: Optional[int] = None,
     event_type: Optional[str] = None,
@@ -114,7 +113,7 @@ def list_agent_events(
 
 # ── Timeline (aggregated) ──────────────────────────────────────────────────
 
-@router.get("/timeline")
+@router.get("/timeline", dependencies=[Depends(verify_faire_token)])
 def get_timeline(project_id: Optional[int] = None, limit: int = 50):
     """Aggregated timeline: decisions + agent events + worklog."""
     events = []

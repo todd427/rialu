@@ -7,12 +7,17 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from auth import verify_faire_token
 from db import db, row_to_dict
 
-router = APIRouter(prefix="/api/decisions", tags=["decisions"])
+router = APIRouter(
+    prefix="/api/decisions",
+    tags=["decisions"],
+    dependencies=[Depends(verify_faire_token)],
+)
 
 
 @router.get("")
@@ -45,6 +50,9 @@ def get_decision(decision_id: str):
 
 # ── Create ──────────────────────────────────────────────────────────────────
 
+VALID_TRIGGER_TYPES = {"ai_approval", "deploy_gate", "error_triage", "cost_threshold"}
+
+
 class DecisionIn(BaseModel):
     project_id: int
     trigger_type: str
@@ -56,6 +64,12 @@ class DecisionIn(BaseModel):
 
 @router.post("", status_code=201)
 async def create_decision(d: DecisionIn):
+    if d.trigger_type not in VALID_TRIGGER_TYPES:
+        raise HTTPException(400, f"Invalid trigger_type. Must be one of: {VALID_TRIGGER_TYPES}")
+    if not 0 <= d.timeout_secs <= 3600:
+        raise HTTPException(400, "timeout_secs must be 0-3600")
+    if len(json.dumps(d.payload)) > 65536:
+        raise HTTPException(400, "payload too large (max 64KB)")
     decision_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     payload_json = json.dumps(d.payload)
