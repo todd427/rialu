@@ -203,7 +203,12 @@ class CCSession:
 
     async def run(self, prompt: str, cwd: str = "."):
         """Spawn claude and process its stream-json output."""
-        cmd = ["claude", "--output-format", "stream-json", "--verbose", "-p", prompt]
+        # Build command — include MCP config if available
+        mcp_config = os.path.expanduser("~/.rialu/dream-mcp.json")
+        cmd = ["claude", "--output-format", "stream-json", "--verbose"]
+        if os.path.exists(mcp_config):
+            cmd.extend(["--mcp-config", mcp_config])
+        cmd.extend(["-p", prompt])
         print(f"[cc_wrapper] spawning: {' '.join(cmd)}", file=sys.stderr)
         print(f"[cc_wrapper] cwd: {cwd}", file=sys.stderr)
 
