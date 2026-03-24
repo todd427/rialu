@@ -340,6 +340,8 @@ MIGRATIONS = [
         checked_at      TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
+    # 016 — project constellations (Phase 7)
+    "ALTER TABLE projects ADD COLUMN constellation TEXT",
 ]
 
 

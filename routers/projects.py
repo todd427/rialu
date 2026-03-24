@@ -57,6 +57,7 @@ class ProjectUpdate(BaseModel):
     site_url: Optional[str] = None
     machine: Optional[str] = None
     platform: Optional[str] = None
+    constellation: Optional[str] = None
 
 
 class MilestoneIn(BaseModel):
