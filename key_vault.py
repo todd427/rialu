@@ -69,3 +69,19 @@ def key_hint(plaintext: str) -> str:
     if len(plaintext) <= 4:
         return "••••"
     return "••••" + plaintext[-4:]
+
+
+def generate_random_key(length: int = 32, encoding: str = "hex") -> str:
+    """
+    Generate a cryptographically random key.
+
+    Args:
+        length:   Number of random bytes (8–64). Default 32 → 256-bit.
+        encoding: 'hex' (default) or 'base64' (URL-safe, no padding).
+
+    Returns the key as a string in the requested encoding.
+    """
+    raw = secrets.token_bytes(length)
+    if encoding == "base64":
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+    return raw.hex()

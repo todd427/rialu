@@ -16,6 +16,7 @@ Tools:
   reveal_key      — decrypt by name, audited
   store_key       — create a new encrypted key
   update_key      — rotate a key value by name
+  generate_key    — get-or-create a crypto-random key
   list_projects   — all projects with status
 """
 
@@ -24,7 +25,7 @@ import os
 import secrets as secrets_mod
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 from urllib.parse import urlparse
 
 from pydantic import AnyHttpUrl
@@ -41,7 +42,7 @@ from mcp.server.auth.provider import (
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from db import db, row_to_dict
-from key_vault import encrypt_key, decrypt_key, key_hint
+from key_vault import encrypt_key, decrypt_key, key_hint, generate_random_key
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
@@ -263,7 +264,7 @@ mcp = FastMCP(
     host=_external_host,
     instructions=(
         "Rialú is Todd's personal DevOps command centre. Use these tools to "
-        "manage the encrypted key vault (list, reveal, store, update keys) and "
+        "manage the encrypted key vault (list, reveal, store, update, generate keys) and "
         "view project status across the portfolio."
     ),
     auth_server_provider=_oauth_provider,
@@ -403,6 +404,90 @@ def update_key(name: str, value: str) -> dict:
             (row["id"],),
         )
     return {"id": row["id"], "name": name, "hint": hint, "status": "updated"}
+
+
+@mcp.tool()
+def generate_key(
+    name: str,
+    provider: str,
+    length: int = 32,
+    encoding: Literal["hex", "base64"] = "hex",
+    env_var: Optional[str] = None,
+    notes: Optional[str] = None,
+) -> dict:
+    """
+    Generate a cryptographically random key and store it — get-or-create semantics.
+
+    If a key with this name already exists, returns the existing plaintext value
+    (audited). If not, generates a new random key, encrypts and stores it, then
+    returns the plaintext value.
+
+    Response includes `created: bool` so callers can distinguish the two cases.
+    The value is returned once — store it appropriately.
+
+    Args:
+        name:     Key name, e.g. 'SESSION_SECRET' or 'MNEMOS_HMAC_KEY'
+        provider: Service or app this key belongs to, e.g. 'App', 'Mnemos'
+        length:   Key size in bytes (8–64). Default 32 = 256-bit.
+        encoding: 'hex' (default, 64-char string) or 'base64' (URL-safe, ~43 chars)
+        env_var:  Optional env var name this maps to
+        notes:    Optional notes
+    """
+    if not (8 <= length <= 64):
+        return {"error": "length must be between 8 and 64 bytes"}
+
+    with db() as conn:
+        existing = conn.execute(
+            "SELECT id, name, provider, encrypted_value, hint, env_var FROM key_store WHERE name = ?",
+            (name,),
+        ).fetchone()
+
+        if existing:
+            try:
+                value = decrypt_key(existing["encrypted_value"])
+            except ValueError as e:
+                return {"error": f"Decryption failed: {e}"}
+            conn.execute(
+                "INSERT INTO key_audit_log (key_id, action, detail) "
+                "VALUES (?, 'revealed', 'generate_key get-or-create (existing) via MCP')",
+                (existing["id"],),
+            )
+            return {
+                "id": existing["id"],
+                "name": existing["name"],
+                "provider": existing["provider"],
+                "hint": existing["hint"],
+                "env_var": existing["env_var"],
+                "encoding": encoding,
+                "value": value,
+                "created": False,
+            }
+
+        value = generate_random_key(length, encoding)
+        encrypted = encrypt_key(value)
+        hint = key_hint(value)
+        cur = conn.execute(
+            "INSERT INTO key_store (name, provider, encrypted_value, hint, env_var, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (name, provider, encrypted, hint, env_var, notes),
+        )
+        key_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO key_audit_log (key_id, action, detail) "
+            "VALUES (?, 'created', ?)",
+            (key_id, f"generated ({length}B {encoding}) via MCP"),
+        )
+
+    return {
+        "id": key_id,
+        "name": name,
+        "provider": provider,
+        "hint": hint,
+        "env_var": env_var,
+        "encoding": encoding,
+        "value": value,
+        "created": True,
+    }
 
 
 # ── Project tools ────────────────────────────────────────────────────────────

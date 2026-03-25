@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+"""
+rialu — CLI for the Rialú key vault.
+
+Config via environment:
+  RIALU_URL   Base URL of Rialú (default: http://localhost:8080)
+
+Usage:
+  rialu keys                          List all keys (metadata)
+  rialu get KEY_NAME [--export]       Reveal a key value
+  rialu store KEY_NAME VALUE          Store a key (interactive for provider)
+  rialu generate KEY_NAME             Get-or-create a random key
+  rialu update KEY_NAME VALUE         Rotate a key value
+
+The --export flag prints 'export VAR=value' suitable for eval:
+  eval $(rialu get MY_KEY --export)
+  eval $(rialu generate SESSION_SECRET --export)
+
+Options for generate:
+  --provider PROVIDER     Service name (default: "App")
+  --length N              Bytes of entropy (8-64, default 32)
+  --base64                Use base64 encoding instead of hex
+  --env-var VAR           Env var name (used by --export)
+  --notes TEXT            Optional notes
+"""
+
+import json
+import os
+import sys
+from urllib.request import urlopen, Request
+from urllib.error import HTTPError, URLError
+
+BASE_URL = os.environ.get("RIALU_URL", "http://localhost:8080").rstrip("/")
+
+
+# ── HTTP helpers ──────────────────────────────────────────────────────────────
+
+def _request(method: str, path: str, body: dict = None) -> dict:
+    url = BASE_URL + path
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    req = Request(url, data=data, headers=headers, method=method)
+    try:
+        with urlopen(req) as resp:
+            return json.loads(resp.read())
+    except HTTPError as e:
+        err = e.read().decode("utf-8", errors="replace")
+        try:
+            detail = json.loads(err).get("detail", err)
+        except Exception:
+            detail = err
+        print(f"error: {e.code} {detail}", file=sys.stderr)
+        sys.exit(1)
+    except URLError as e:
+        print(f"error: cannot reach {BASE_URL} — {e.reason}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _get(path: str) -> dict:
+    return _request("GET", path)
+
+
+def _post(path: str, body: dict) -> dict:
+    return _request("POST", path, body)
+
+
+# ── Export helper ─────────────────────────────────────────────────────────────
+
+def _export_line(name: str, env_var: str | None, value: str) -> str:
+    """Produce 'export VAR=value' — prefer env_var, fall back to name."""
+    var = env_var or name
+    return f"export {var}={value}"
+
+
+# ── Commands ──────────────────────────────────────────────────────────────────
+
+def cmd_keys():
+    """List all keys — metadata only."""
+    rows = _get("/api/keys")
+    if not rows:
+        print("No keys stored.")
+        return
+    fmt = "{:<30} {:<20} {:<15} {:<20} {}"
+    print(fmt.format("NAME", "PROVIDER", "HINT", "ENV_VAR", "NOTES"))
+    print("-" * 90)
+    for r in rows:
+        print(fmt.format(
+            r.get("name", ""),
+            r.get("provider", ""),
+            r.get("hint", ""),
+            r.get("env_var", "") or "",
+            r.get("notes", "") or "",
+        ))
+
+
+def cmd_get(name: str, export: bool = False):
+    """Reveal a key by name."""
+    keys = _get("/api/keys")
+    row = next((r for r in keys if r["name"] == name), None)
+    if not row:
+        print(f"error: key '{name}' not found", file=sys.stderr)
+        sys.exit(1)
+    result = _post(f"/api/keys/{row['id']}/reveal", {})
+    value = result["value"]
+    if export:
+        print(_export_line(name, row.get("env_var"), value))
+    else:
+        print(value)
+
+
+def cmd_store(name: str, value: str, provider: str = None, env_var: str = None, notes: str = None):
+    """Store a key with the given value."""
+    if not provider:
+        provider = input("Provider (e.g. OpenAI, Fly.io, App): ").strip() or "Unknown"
+    body = {"name": name, "provider": provider, "value": value}
+    if env_var:
+        body["env_var"] = env_var
+    if notes:
+        body["notes"] = notes
+    result = _post("/api/keys", body)
+    print(f"stored: {result['name']} (id={result['id']}, hint={result['hint']})")
+
+
+def cmd_generate(
+    name: str,
+    provider: str = "App",
+    length: int = 32,
+    base64: bool = False,
+    env_var: str = None,
+    notes: str = None,
+    export: bool = False,
+):
+    """Get-or-create a crypto-random key."""
+    body = {
+        "name": name,
+        "provider": provider,
+        "length": length,
+        "encoding": "base64" if base64 else "hex",
+    }
+    if env_var:
+        body["env_var"] = env_var
+    if notes:
+        body["notes"] = notes
+    result = _post("/api/keys/generate", body)
+
+    value = result["value"]
+    created = result.get("created", True)
+
+    if export:
+        print(_export_line(name, result.get("env_var"), value))
+    else:
+        status = "created" if created else "existing"
+        print(f"# [{status}] {name}  hint={result['hint']}")
+        print(value)
+
+
+def cmd_update(name: str, value: str):
+    """Rotate a key's value by name."""
+    keys = _get("/api/keys")
+    row = next((r for r in keys if r["name"] == name), None)
+    if not row:
+        print(f"error: key '{name}' not found", file=sys.stderr)
+        sys.exit(1)
+    result = _post(f"/api/keys/{row['id']}/reveal", {})  # just to verify exists
+    # Use PUT
+    from urllib.request import urlopen, Request
+    import json
+    url = BASE_URL + f"/api/keys/{row['id']}"
+    body = json.dumps({"value": value}).encode()
+    req = Request(url, data=body, headers={"Content-Type": "application/json"}, method="PUT")
+    try:
+        with urlopen(req) as resp:
+            r = json.loads(resp.read())
+    except HTTPError as e:
+        print(f"error: {e.code} {e.read().decode()}", file=sys.stderr)
+        sys.exit(1)
+    print(f"updated: {name}  hint={r.get('hint', '????')}")
+
+
+# ── Arg parsing ───────────────────────────────────────────────────────────────
+
+def _flag(args: list, *names) -> bool:
+    for n in names:
+        if n in args:
+            args.remove(n)
+            return True
+    return False
+
+
+def _option(args: list, *names) -> str | None:
+    for n in names:
+        if n in args:
+            i = args.index(n)
+            if i + 1 < len(args):
+                val = args[i + 1]
+                del args[i:i + 2]
+                return val
+    return None
+
+
+def main():
+    args = list(sys.argv[1:])
+
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__)
+        sys.exit(0)
+
+    cmd = args.pop(0)
+
+    if cmd == "keys":
+        cmd_keys()
+
+    elif cmd == "get":
+        if not args:
+            print("usage: rialu get KEY_NAME [--export]", file=sys.stderr)
+            sys.exit(1)
+        name = args.pop(0)
+        export = _flag(args, "--export")
+        cmd_get(name, export=export)
+
+    elif cmd == "store":
+        if len(args) < 2:
+            print("usage: rialu store KEY_NAME VALUE [--provider P] [--env-var V] [--notes N]", file=sys.stderr)
+            sys.exit(1)
+        name = args.pop(0)
+        value = args.pop(0)
+        provider = _option(args, "--provider")
+        env_var = _option(args, "--env-var")
+        notes = _option(args, "--notes")
+        cmd_store(name, value, provider=provider, env_var=env_var, notes=notes)
+
+    elif cmd == "generate":
+        if not args:
+            print("usage: rialu generate KEY_NAME [--provider P] [--length N] [--base64] [--env-var V] [--notes N] [--export]", file=sys.stderr)
+            sys.exit(1)
+        name = args.pop(0)
+        provider = _option(args, "--provider") or "App"
+        length_str = _option(args, "--length")
+        length = int(length_str) if length_str else 32
+        b64 = _flag(args, "--base64")
+        env_var = _option(args, "--env-var")
+        notes = _option(args, "--notes")
+        export = _flag(args, "--export")
+        cmd_generate(name, provider=provider, length=length, base64=b64,
+                     env_var=env_var, notes=notes, export=export)
+
+    elif cmd == "update":
+        if len(args) < 2:
+            print("usage: rialu update KEY_NAME NEW_VALUE", file=sys.stderr)
+            sys.exit(1)
+        name = args.pop(0)
+        value = args.pop(0)
+        cmd_update(name, value)
+
+    else:
+        print(f"unknown command: {cmd}\nRun 'rialu --help' for usage.", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

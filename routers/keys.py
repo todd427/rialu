@@ -4,17 +4,22 @@ routers/keys.py — Encrypted key vault endpoints.
 All responses return metadata only (name, provider, hint, env_var).
 The actual key value is only returned via POST /api/keys/{id}/reveal,
 which logs the access in key_audit_log.
+
+generate_key (POST /api/keys/generate) uses get-or-create semantics:
+  - If a key with the given name exists, returns the existing value.
+  - If not, generates a crypto-random key, stores it, and returns the value.
+  Response includes `created: bool` so callers can distinguish.
 """
 
 import os
 import secrets
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from db import db, row_to_dict
-from key_vault import encrypt_key, decrypt_key, key_hint
+from key_vault import encrypt_key, decrypt_key, key_hint, generate_random_key
 from shamir import split_hex, combine_hex
 
 router = APIRouter(prefix="/api", tags=["keys"])
@@ -34,6 +39,15 @@ class KeyUpdate(BaseModel):
     name: Optional[str] = None
     provider: Optional[str] = None
     value: Optional[str] = None
+    env_var: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class GenerateKeyIn(BaseModel):
+    name: str
+    provider: str
+    length: int = Field(default=32, ge=8, le=64, description="Key length in bytes")
+    encoding: Literal["hex", "base64"] = "hex"
     env_var: Optional[str] = None
     notes: Optional[str] = None
 
@@ -66,17 +80,64 @@ def list_keys():
     return [row_to_dict(r) for r in rows]
 
 
-@router.get("/keys/{key_id}")
-def get_key(key_id: int):
-    """Get a single key's metadata."""
+@router.post("/keys/generate")
+def generate_key(payload: GenerateKeyIn):
+    """
+    Generate a crypto-random key and store it — get-or-create semantics.
+
+    If a key with this name already exists, the existing value is returned
+    (decrypted, audited). If not, a new random key is generated, encrypted,
+    stored, and returned.
+
+    Response always includes `created: bool` to distinguish the two cases.
+    The plaintext value is returned once — treat it accordingly.
+    """
     with db() as conn:
-        row = conn.execute(
-            "SELECT id, name, provider, hint, env_var, notes, created_at, updated_at FROM key_store WHERE id = ?",
-            (key_id,),
+        existing = conn.execute(
+            "SELECT id, name, provider, encrypted_value, hint, env_var FROM key_store WHERE name = ?",
+            (payload.name,),
         ).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Key not found")
-    return row_to_dict(row)
+
+        if existing:
+            # GET — return existing value, audited
+            try:
+                value = decrypt_key(existing["encrypted_value"])
+            except ValueError as e:
+                raise HTTPException(status_code=500, detail=f"Decryption failed: {e}")
+            _audit(conn, existing["id"], "revealed", "get_or_create (existing)")
+            return {
+                "id": existing["id"],
+                "name": existing["name"],
+                "provider": existing["provider"],
+                "hint": existing["hint"],
+                "env_var": existing["env_var"],
+                "encoding": payload.encoding,
+                "value": value,
+                "created": False,
+            }
+
+        # CREATE — generate, encrypt, store
+        value = generate_random_key(payload.length, payload.encoding)
+        encrypted = encrypt_key(value)
+        hint = key_hint(value)
+        cur = conn.execute(
+            "INSERT INTO key_store (name, provider, encrypted_value, hint, env_var, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (payload.name, payload.provider, encrypted, hint, payload.env_var, payload.notes),
+        )
+        key_id = cur.lastrowid
+        _audit(conn, key_id, "created", f"generated ({payload.length}B {payload.encoding})")
+
+    return {
+        "id": key_id,
+        "name": payload.name,
+        "provider": payload.provider,
+        "hint": hint,
+        "env_var": payload.env_var,
+        "encoding": payload.encoding,
+        "value": value,
+        "created": True,
+    }
 
 
 @router.post("/keys", status_code=201)
@@ -98,6 +159,19 @@ def create_key(payload: KeyIn):
         key_id = cur.lastrowid
         _audit(conn, key_id, "created", f"provider={payload.provider}")
     return {"id": key_id, "name": payload.name, "hint": hint}
+
+
+@router.get("/keys/{key_id}")
+def get_key(key_id: int):
+    """Get a single key's metadata."""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id, name, provider, hint, env_var, notes, created_at, updated_at FROM key_store WHERE id = ?",
+            (key_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Key not found")
+    return row_to_dict(row)
 
 
 @router.put("/keys/{key_id}")
