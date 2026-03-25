@@ -25,7 +25,7 @@ from starlette.routing import Mount
 
 from db import init_db
 from poller import setup_scheduler
-from routers import projects, worklog, deployments, budget, machines, keys, mcp_status, usage, sentinel, milestone_review, mnemos, github, decisions, agents
+from routers import projects, worklog, deployments, budget, machines, keys, mcp_status, usage, sentinel, milestone_review, mnemos, github, export, decisions, agents
 from ws_hub import hub
 from faire_hub import faire_hub
 import mcp_server as _mcp
@@ -39,7 +39,10 @@ async def lifespan(app: FastAPI):
     if not TEST_MODE:
         sched = setup_scheduler()
         sched.start()
-    yield
+    # MCP session manager must run for the full lifespan
+    session_mgr = _mcp.mcp.session_manager
+    async with session_mgr.run():
+        yield
     if not TEST_MODE:
         from poller import scheduler
         scheduler.shutdown(wait=False)
@@ -63,11 +66,28 @@ from fastapi.responses import RedirectResponse
 class CanonicalHostMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         host = request.headers.get("host", "")
-        # Allow agent, WS, API, and MCP connections on any hostname
-        if request.url.path.startswith("/ws/") or request.url.path.startswith("/api/") or request.url.path.startswith("/mcp"):
+        path = request.url.path
+
+        if TEST_MODE:
             return await call_next(request)
-        if host and "rialu.ie" not in host and not TEST_MODE:
-            return RedirectResponse(f"https://rialu.ie{request.url.path}", status_code=301)
+
+        # Health check — always allowed (Fly internal monitoring)
+        if path == "/api/health":
+            return await call_next(request)
+
+        # MCP + OAuth endpoints — allowed on any host (MCP has its own OAuth 2.1)
+        if path.startswith("/mcp") or path.startswith("/.well-known") or path in ("/authorize", "/token", "/register", "/revoke"):
+            return await call_next(request)
+
+        # Tauri/localhost origins — allowed via CORS (Faire desktop)
+        origin = request.headers.get("origin", "")
+        if origin and ("localhost" in origin or "tauri" in origin):
+            return await call_next(request)
+
+        # Everything else must come through rialu.ie (Cloudflare Access)
+        if host and "rialu.ie" not in host:
+            return JSONResponse({"detail": "Use rialu.ie"}, status_code=421)
+
         return await call_next(request)
 
 
@@ -94,6 +114,7 @@ app.include_router(sentinel.router)
 app.include_router(milestone_review.router)
 app.include_router(mnemos.router)
 app.include_router(github.router)
+app.include_router(export.router)
 app.include_router(decisions.router)
 app.include_router(agents.router)
 
@@ -151,27 +172,22 @@ async def test_broadcast():
     return {"clients": clients, "sent": True}
 
 
-# ── SPA catch-all ─────────────────────────────────────────────────────────────
+# ── MCP — mount at root; streamable_http_app() registers /mcp internally ─────
+# OAuth endpoints (/.well-known, /authorize, /token, /register) also at root.
+
+app.router.routes.append(Mount("/", app=_mcp.get_asgi_app()))
+
+# ── SPA catch-all (must be AFTER MCP mount) ──────────────────────────────────
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+_INDEX_HTML = os.path.join(STATIC_DIR, "index.html") if os.path.isdir(STATIC_DIR) else None
 
-if os.path.isdir(STATIC_DIR):
+if _INDEX_HTML:
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/", response_class=FileResponse)
     def index():
-        return FileResponse(os.path.join(STATIC_DIR, "index.html"))
-
-    @app.get("/{full_path:path}", response_class=FileResponse)
-    def spa_fallback(full_path: str):
-        if full_path.startswith("api/") or full_path.startswith("mcp"):
-            return JSONResponse({"detail": "Not found"}, status_code=404)
-        return FileResponse(os.path.join(STATIC_DIR, "index.html"))
-
-
-# ── MCP — mount last so FastAPI routes take priority ─────────────────────────
-
-app.router.routes.append(Mount("/mcp", app=_mcp.get_asgi_app()))
+        return FileResponse(_INDEX_HTML)
 
 
 if __name__ == "__main__":

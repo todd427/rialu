@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Rialú
 
-Rialú (Irish: "control") is a personal DevOps command centre — a single-user FastAPI + SQLite app that tracks projects, work sessions, cloud deployments, budget, API usage, MCP connector health, and threat intelligence across Todd's project portfolio. Auth is handled externally by Cloudflare Access (Google OAuth); the app itself has no auth layer.
+Rialú (Irish: "control") is a personal DevOps command centre — a single-user FastAPI + SQLite app that tracks projects, work sessions, cloud deployments, budget, API usage, MCP connector health, and threat intelligence across Todd's project portfolio. Also serves as the backend for the Faire desktop client (Tauri) and exposes an MCP server for Claude tool access. Auth: Cloudflare Access (Google OAuth) for the web SPA, Bearer token for Faire/MCP.
 
 **URL:** `rialu.ie` · **Fly app:** `rialu` · **Region:** `lhr`
 
@@ -18,7 +18,7 @@ All API keys are stored in the Rialú key vault (AES-256-GCM encrypted with Sham
 # Run dev server (port 8080)
 python main.py
 
-# Run all tests (128 passing)
+# Run all tests (203 passing)
 RIALU_TEST=1 python -m pytest tests/ -v
 
 # Run a single test file
@@ -38,18 +38,27 @@ python seed_config.py
 **Request flow:** Browser → Cloudflare Access → Fly.io → FastAPI → SQLite (WAL mode)
 
 **Routers** (`routers/`): Each maps to an API domain, all mounted under `/api/`:
-- `projects.py` — CRUD + milestones + sessions + per-project dashboard
+- `projects.py` — CRUD + milestones + sessions + per-project dashboard + constellation grouping
 - `worklog.py` — Work sessions with LOC tracking + stats + GitHub LOC refresh
 - `deployments.py` — Cached deploy status from Fly.io and Railway pollers
-- `budget.py` — Platform costs (EUR) + API registry + billing refresh
+- `budget.py` — Platform costs (EUR) + API registry + billing refresh + cost-by-project
 - `usage.py` — Anthropic token usage (CSV import from console.anthropic.com)
-- `sentinel.py` — Threat intelligence dashboard (proxies Sentinel API)
+- `sentinel.py` — Threat intelligence dashboard (proxies Sentinel API + recent events)
 - `mcp_status.py` — Health checker for all 4 MCP connectors
 - `milestone_review.py` — Automated milestone verification against GitHub repos
 - `machines.py` — rialu-agent heartbeats, action queue, WebSocket terminal
 - `mnemos.py` — Mnemos memory integration (stats, search, ingest proxy)
 - `github.py` — GitHub repo discovery, adoption, and repo creation
+- `export.py` — CSV exports (projects, worklog, budget, usage, sentinel)
+- `decisions.py` — Faire decision queue (create, respond, list)
+- `agents.py` — Faire agent registry and event stream
 - `keys.py` — Encrypted key vault with audit logging
+
+**Core modules:**
+- `auth.py` — Bearer token verification for Faire/MCP clients
+- `mcp_server.py` — FastMCP server at `/mcp` (vault + project tools)
+- `faire_hub.py` — WebSocket broadcast hub for Faire desktop clients
+- `ws_hub.py` — WebSocket hub for rialu-agent connections
 
 **Pollers** (`poller.py`):
 - Fly.io GraphQL (60s) — app/machine status
@@ -58,7 +67,7 @@ python seed_config.py
 - GitHub LOC (6hr) — commit stats per project
 - GitHub repos (6hr) — cache all user repos, detect untracked
 
-**Frontend:** Single-file vanilla JS SPA (`static/index.html`). Tabs: Projects, Work log, Machines, Deployments, Sentinel, Budget & APIs, MCP, Keys. 4 themes (dark/light/slate/terminal).
+**Frontend:** Single-file vanilla JS SPA (`static/index.html`). Tabs: Projects (list/kanban/timeline views), Work log, Machines, Deployments, Sentinel, Budget & APIs, Mnemos, MCP, Keys. 4 themes (dark/light/slate/terminal). Also serves as backend for Faire (Tauri desktop client) via WebSocket + REST.
 
 **Database:** SQLite WAL mode, foreign keys enforced. Schema managed via idempotent migrations array in `db.py`. Connection via `with db() as conn:` context manager with auto-commit/rollback.
 
@@ -74,11 +83,14 @@ python seed_config.py
 
 ## Fly Secrets Required
 
-`FLY_API_TOKEN`, `RAILWAY_API_TOKEN`, `GITHUB_PAT`, `RIALU_VAULT_KEY`, `RIALU_AGENT_KEY`, `SENTINEL_URL`, `SENTINEL_API_KEY`, `MNEMOS_API_KEY`
+`FLY_API_TOKEN`, `RAILWAY_API_TOKEN`, `GITHUB_PAT`, `RIALU_VAULT_KEY`, `RIALU_AGENT_KEY`, `SENTINEL_URL`, `SENTINEL_API_KEY`, `MNEMOS_API_KEY`, `FAIRE_WS_TOKEN`, `RIALU_MCP_KEY`
 
-## Current State (2026-03-23)
+## Current State (2026-03-24)
 
 - **Phase 1-2:** Complete (foundation, pollers, SPA, machine agents, key vault)
-- **Phase 3:** Complete. Anthropic usage tracking, MCP status tab, Sentinel dashboard, GitHub LOC poller, project dashboard, milestone auto-review, budget refresh, Timeline view (real date-based gantt), Kanban view (drag-and-drop status changes), API cost attribution per project
-- **Phase 4:** Partially complete. Done: Mnemos integration (stats dashboard, search, auto-ingest sessions/milestones), GitHub repo discovery + adoption + creation. Remaining: CSV exports, rialu-agent OAuth 2.1
-- **Tests:** 148 passing across 17 test files
+- **Phase 3:** Complete. Anthropic usage, MCP status, Sentinel (stats + recent events), GitHub LOC, project dashboard, milestone auto-review, budget refresh, Timeline (date-based gantt), Kanban (drag-drop), API cost attribution per project
+- **Phase 4:** Complete. Mnemos integration (stats/search/auto-ingest), GitHub repo discovery + adoption + creation, Faire Phase 1 (decisions queue, agents registry, WS broadcast hub, CC stream-json wrapper, event pipeline)
+- **Phase 5-6:** Complete. Bearer token auth, HMAC enforcement, FastMCP server at /mcp (vault + project tools), timeline + agent-events API, Faire desktop client support (CORS, WebSocket hub)
+- **Phase 7:** In progress. Constellation grouping for projects
+- **Remaining:** Nothing — all planned phases complete
+- **Tests:** 213 passing across 24 test files

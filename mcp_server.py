@@ -1,14 +1,14 @@
 """
-mcp_server.py — FastMCP server for Rialú.
+mcp_server.py — MCP server for Rialú.
 
 Exposes key vault and project data to Claude via MCP.
-Mount point: /mcp (appended in main.py)
+Mount point: /mcp (mounted in main.py)
 
-Auth: Static Bearer token via RIALU_MCP_KEY env var.
-      Enforced by BearerAuthMiddleware on every tool call.
-      Claude.ai registers this as a custom MCP connector:
-        URL: https://rialu.ie/mcp
-        Header: Authorization: Bearer <RIALU_MCP_KEY>
+Auth: OAuth 2.1 with PKCE + Dynamic Client Registration (DCR).
+      Same pattern as Mnemos — auto-approves authorization for a personal server.
+      State persisted to /data/oauth_state.json (Fly.io volume).
+
+Claude.ai connector URL: https://rialu.ie/mcp
 
 Tools:
   vault_status    — is vault initialised, how many keys
@@ -19,46 +19,269 @@ Tools:
   list_projects   — all projects with status
 """
 
+import json
 import os
-import secrets
+import secrets as secrets_mod
+import time
+from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
-from fastmcp import FastMCP
-from fastmcp.server.middleware import Middleware, MiddlewareContext
-from fastmcp.server.dependencies import get_http_headers
-from fastmcp.exceptions import ToolError
+from pydantic import AnyHttpUrl
+from mcp.server.fastmcp import FastMCP
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
+from mcp.server.auth.provider import (
+    OAuthAuthorizationServerProvider,
+    AuthorizationParams,
+    AuthorizationCode,
+    AccessToken,
+    RefreshToken,
+    construct_redirect_uri,
+)
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from db import db, row_to_dict
 from key_vault import encrypt_key, decrypt_key, key_hint
 
-_MCP_KEY = os.environ.get("RIALU_MCP_KEY", "")
+
+# ── Config ───────────────────────────────────────────────────────────────────
+
+_ISSUER_URL = os.environ.get("RIALU_MCP_ISSUER", "https://rialu.fly.dev")
+_OAUTH_STATE = os.environ.get("RIALU_OAUTH_STATE_PATH", "/data/oauth_state.json")
+_SCOPE = "mcp"
+_TOKEN_LIFETIME = 30 * 24 * 3600  # 30 days
+_CODE_LIFETIME = 600  # 10 minutes
+
+ALLOWED_REDIRECT_DOMAINS = ["claude.ai", "localhost", "127.0.0.1"]
 
 
-# ── Auth middleware ───────────────────────────────────────────────────────────
+def _redirect_allowed(uri: str) -> bool:
+    return any(domain in uri for domain in ALLOWED_REDIRECT_DOMAINS)
 
-class BearerAuthMiddleware(Middleware):
-    """Validate RIALU_MCP_KEY Bearer token on every tool call."""
 
-    async def on_call_tool(self, context: MiddlewareContext, call_next):
-        if not _MCP_KEY:
-            raise ToolError("RIALU_MCP_KEY not configured on server")
-        headers = get_http_headers()
-        auth_header = headers.get("authorization", "")
-        if not auth_header.startswith("Bearer "):
-            raise ToolError("Access denied: missing or malformed Bearer token")
-        token = auth_header.removeprefix("Bearer ").strip()
-        if not secrets.compare_digest(token, _MCP_KEY):
-            raise ToolError("Access denied: invalid token")
-        return await call_next(context)
+# ── OAuth Provider ───────────────────────────────────────────────────────────
+
+class RialuOAuthProvider(OAuthAuthorizationServerProvider):
+    """
+    Personal OAuth 2.1 provider for Rialú MCP.
+    Auto-approves all authorization from allowed redirect domains.
+    State persisted to JSON file on Fly.io volume.
+    """
+
+    def __init__(self, state_file: str):
+        self._path = Path(state_file)
+        self._clients: dict = {}
+        self._codes: dict = {}
+        self._tokens: dict = {}
+        self._refresh: dict = {}
+        self._load()
+
+    def _load(self) -> None:
+        try:
+            if self._path.exists():
+                with self._path.open() as f:
+                    state = json.load(f)
+                self._clients = state.get("clients", {})
+                self._codes = state.get("codes", {})
+                self._tokens = state.get("tokens", {})
+                self._refresh = state.get("refresh", {})
+                print(f"[rialu-oauth] Loaded: {len(self._clients)} clients, {len(self._tokens)} tokens")
+        except Exception as exc:
+            print(f"[rialu-oauth] Could not load state ({exc}); starting fresh")
+
+    def _save(self) -> None:
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._path.with_suffix(".tmp")
+            with tmp.open("w") as f:
+                json.dump({
+                    "clients": self._clients,
+                    "codes": self._codes,
+                    "tokens": self._tokens,
+                    "refresh": self._refresh,
+                }, f, indent=2)
+            tmp.replace(self._path)
+        except Exception as exc:
+            print(f"[rialu-oauth] Could not save state: {exc}")
+
+    async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
+        data = self._clients.get(client_id)
+        if not data:
+            return None
+        try:
+            return OAuthClientInformationFull.model_validate(data)
+        except Exception:
+            return None
+
+    async def register_client(self, client_info: OAuthClientInformationFull) -> None:
+        self._clients[client_info.client_id] = client_info.model_dump(mode="json")
+        self._save()
+        print(f"[rialu-oauth] Registered client: {client_info.client_id}")
+
+    async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
+        raw_redirect = getattr(params, "redirect_uri", None)
+        redirect_uri = str(raw_redirect) if raw_redirect else ""
+        if not redirect_uri:
+            raise ValueError("redirect_uri is required")
+        if not _redirect_allowed(redirect_uri):
+            raise ValueError(f"redirect_uri not in allowlist: {redirect_uri}")
+
+        scope_val = getattr(params, "scope", None) or getattr(params, "scopes", None) or _SCOPE
+        challenge = getattr(params, "code_challenge", None)
+        challenge_str = str(challenge) if challenge is not None else None
+        method = getattr(params, "code_challenge_method", "S256")
+        method_str = str(method) if method is not None else "S256"
+        state_val = getattr(params, "state", None)
+        state_str = str(state_val) if state_val is not None else None
+
+        code = secrets_mod.token_urlsafe(32)
+        self._codes[code] = {
+            "code": code,
+            "client_id": client.client_id,
+            "redirect_uri": redirect_uri,
+            "scope": scope_val,
+            "code_challenge": challenge_str,
+            "code_challenge_method": method_str,
+            "expires_at": time.time() + _CODE_LIFETIME,
+        }
+        self._save()
+        print(f"[rialu-oauth] Issued auth code for client {client.client_id}")
+        return construct_redirect_uri(redirect_uri, code=code, state=state_str)
+
+    async def load_authorization_code(self, client: OAuthClientInformationFull, authorization_code: str) -> AuthorizationCode | None:
+        data = self._codes.get(authorization_code)
+        if not data:
+            return None
+        if time.time() > data["expires_at"]:
+            self._codes.pop(authorization_code, None)
+            self._save()
+            return None
+        if data["client_id"] != client.client_id:
+            return None
+        scope_raw = data.get("scope", _SCOPE)
+        scopes = scope_raw.split() if isinstance(scope_raw, str) else scope_raw
+        return AuthorizationCode(
+            code=data["code"],
+            client_id=data["client_id"],
+            redirect_uri=AnyHttpUrl(data["redirect_uri"]),
+            redirect_uri_provided_explicitly=True,
+            expires_at=data["expires_at"],
+            scopes=scopes,
+            code_challenge=data.get("code_challenge"),
+            code_challenge_method=data.get("code_challenge_method", "S256"),
+        )
+
+    async def exchange_authorization_code(self, client: OAuthClientInformationFull, authorization_code: AuthorizationCode) -> OAuthToken:
+        self._codes.pop(authorization_code.code, None)
+        access_token = secrets_mod.token_urlsafe(48)
+        refresh_token = secrets_mod.token_urlsafe(48)
+        scopes = authorization_code.scopes or [_SCOPE]
+        expires_at = time.time() + _TOKEN_LIFETIME
+        self._tokens[access_token] = {
+            "token": access_token,
+            "client_id": client.client_id,
+            "scopes": scopes,
+            "expires_at": expires_at,
+        }
+        self._refresh[refresh_token] = {
+            "token": refresh_token,
+            "client_id": client.client_id,
+            "scopes": scopes,
+            "access_token": access_token,
+        }
+        self._save()
+        print(f"[rialu-oauth] Issued tokens for client {client.client_id}")
+        return OAuthToken(
+            access_token=access_token,
+            token_type="bearer",
+            expires_in=int(_TOKEN_LIFETIME),
+            scope=" ".join(scopes),
+            refresh_token=refresh_token,
+        )
+
+    async def load_access_token(self, token: str) -> AccessToken | None:
+        data = self._tokens.get(token)
+        if not data:
+            return None
+        if time.time() > data["expires_at"]:
+            return None
+        return AccessToken(
+            token=data["token"],
+            client_id=data["client_id"],
+            scopes=data.get("scopes", [_SCOPE]),
+            expires_at=int(data["expires_at"]),
+        )
+
+    async def load_refresh_token(self, client: OAuthClientInformationFull, refresh_token: str) -> RefreshToken | None:
+        data = self._refresh.get(refresh_token)
+        if not data or data["client_id"] != client.client_id:
+            return None
+        return RefreshToken(
+            token=data["token"],
+            client_id=data["client_id"],
+            scopes=data.get("scopes", [_SCOPE]),
+        )
+
+    async def exchange_refresh_token(self, client: OAuthClientInformationFull, refresh_token: RefreshToken, scopes: list[str]) -> OAuthToken:
+        new_access = secrets_mod.token_urlsafe(48)
+        expires_at = time.time() + _TOKEN_LIFETIME
+        use_scopes = scopes or refresh_token.scopes or [_SCOPE]
+        self._tokens[new_access] = {
+            "token": new_access,
+            "client_id": client.client_id,
+            "scopes": use_scopes,
+            "expires_at": expires_at,
+        }
+        if refresh_token.token in self._refresh:
+            self._refresh[refresh_token.token]["access_token"] = new_access
+        self._save()
+        return OAuthToken(
+            access_token=new_access,
+            token_type="bearer",
+            expires_in=int(_TOKEN_LIFETIME),
+            scope=" ".join(use_scopes),
+            refresh_token=refresh_token.token,
+        )
+
+    async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
+        if isinstance(token, AccessToken):
+            self._tokens.pop(token.token, None)
+        else:
+            rt_data = self._refresh.pop(token.token, None)
+            if rt_data:
+                self._tokens.pop(rt_data.get("access_token", ""), None)
+        self._save()
 
 
 # ── Server ────────────────────────────────────────────────────────────────────
 
-mcp = FastMCP("rialu")
-mcp.add_middleware(BearerAuthMiddleware())
+_oauth_provider = RialuOAuthProvider(state_file=_OAUTH_STATE)
+_external_host = urlparse(_ISSUER_URL).hostname or "rialu.ie"
+
+mcp = FastMCP(
+    name="Rialú",
+    host=_external_host,
+    instructions=(
+        "Rialú is Todd's personal DevOps command centre. Use these tools to "
+        "manage the encrypted key vault (list, reveal, store, update keys) and "
+        "view project status across the portfolio."
+    ),
+    auth_server_provider=_oauth_provider,
+    auth=AuthSettings(
+        issuer_url=AnyHttpUrl(_ISSUER_URL),
+        resource_server_url=AnyHttpUrl(_ISSUER_URL),
+        client_registration_options=ClientRegistrationOptions(
+            enabled=True,
+            valid_scopes=["mcp"],
+            default_scopes=["mcp"],
+        ),
+        required_scopes=["mcp"],
+    ),
+    stateless_http=True,
+)
 
 
-# ── Vault ────────────────────────────────────────────────────────────────────
+# ── Vault tools ──────────────────────────────────────────────────────────────
 
 @mcp.tool()
 def vault_status() -> dict:
@@ -97,11 +320,11 @@ def reveal_key(name: str) -> dict:
             (name,),
         ).fetchone()
         if not row:
-            raise ToolError(f"Key '{name}' not found")
+            return {"error": f"Key '{name}' not found"}
         try:
             value = decrypt_key(row["encrypted_value"])
         except ValueError as e:
-            raise ToolError(f"Decryption failed: {e}")
+            return {"error": f"Decryption failed: {e}"}
         conn.execute(
             "INSERT INTO key_audit_log (key_id, action, detail) VALUES (?, 'revealed', 'via MCP')",
             (row["id"],),
@@ -140,7 +363,7 @@ def store_key(
             "SELECT id FROM key_store WHERE name = ?", (name,)
         ).fetchone()
         if existing:
-            raise ToolError(f"Key '{name}' already exists — use update_key to rotate")
+            return {"error": f"Key '{name}' already exists — use update_key to rotate"}
         cur = conn.execute(
             "INSERT INTO key_store (name, provider, encrypted_value, hint, env_var, notes) "
             "VALUES (?, ?, ?, ?, ?, ?)",
@@ -170,7 +393,7 @@ def update_key(name: str, value: str) -> dict:
             "SELECT id FROM key_store WHERE name = ?", (name,)
         ).fetchone()
         if not row:
-            raise ToolError(f"Key '{name}' not found")
+            return {"error": f"Key '{name}' not found"}
         conn.execute(
             "UPDATE key_store SET encrypted_value = ?, hint = ?, updated_at = datetime('now') WHERE id = ?",
             (encrypted, hint, row["id"]),
@@ -182,14 +405,14 @@ def update_key(name: str, value: str) -> dict:
     return {"id": row["id"], "name": name, "hint": hint, "status": "updated"}
 
 
-# ── Projects ─────────────────────────────────────────────────────────────────
+# ── Project tools ────────────────────────────────────────────────────────────
 
 @mcp.tool()
 def list_projects() -> list[dict]:
     """List all Rialú projects with name, status, phase, and platform."""
     with db() as conn:
         rows = conn.execute(
-            "SELECT id, name, slug, phase, status, platform, repo_url, machine, notes, updated_at "
+            "SELECT id, name, slug, phase, status, platform, repo_url, site_url, machine, notes, updated_at "
             "FROM projects ORDER BY updated_at DESC"
         ).fetchall()
     return [row_to_dict(r) for r in rows]
@@ -198,5 +421,5 @@ def list_projects() -> list[dict]:
 # ── ASGI app ─────────────────────────────────────────────────────────────────
 
 def get_asgi_app():
-    """Return the FastMCP ASGI app for mounting in main.py."""
-    return mcp.http_app(path="/")
+    """Return the MCP ASGI app for mounting in main.py."""
+    return mcp.streamable_http_app()

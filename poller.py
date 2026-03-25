@@ -489,6 +489,85 @@ async def poll_github_repos() -> None:
         log.warning("[github-repos] poll failed: %s", exc)
 
 
+# ── auto status transitions ──────────────────────────────────────────────────
+
+async def sync_project_status() -> None:
+    """
+    Auto-transition project status based on deploy state, commits, and milestones.
+
+    Rules:
+      research → development    First code worklog entry exists
+      development → deployed    Matching deploy is healthy
+      deployed → paused         Matching deploy is stopped/suspended
+      paused → deployed         Matching deploy comes back healthy
+      any → shipped             All milestones done (and has ≥1 milestone)
+    """
+    try:
+        with db() as conn:
+            projects = conn.execute(
+                "SELECT id, name, slug, status FROM projects"
+            ).fetchall()
+
+            for proj in projects:
+                pid = proj["id"]
+                slug = proj["slug"]
+                name = proj["name"].lower()
+                old_status = proj["status"]
+
+                # Don't touch shipped projects
+                if old_status == "shipped":
+                    continue
+
+                # Find matching deploy (fuzzy: slug or name contained in service_name)
+                deploy = conn.execute(
+                    """SELECT status FROM deployments_cache
+                       WHERE LOWER(service_name) LIKE ? OR LOWER(service_name) LIKE ?
+                       ORDER BY checked_at DESC LIMIT 1""",
+                    (f"%{slug}%", f"%{name}%"),
+                ).fetchone()
+                deploy_status = deploy["status"] if deploy else None
+
+                # Check milestones
+                ms_total = conn.execute(
+                    "SELECT COUNT(*) as c FROM milestones WHERE project_id = ?", (pid,)
+                ).fetchone()["c"]
+                ms_done = conn.execute(
+                    "SELECT COUNT(*) as c FROM milestones WHERE project_id = ? AND done = 1", (pid,)
+                ).fetchone()["c"]
+
+                # Check for any code activity
+                has_code = conn.execute(
+                    "SELECT 1 FROM worklog WHERE project_id = ? AND (lines_added > 0 OR lines_removed > 0) LIMIT 1",
+                    (pid,),
+                ).fetchone()
+
+                new_status = old_status
+
+                # All milestones done → shipped (require ≥3, and not actively deployed)
+                if ms_total >= 3 and ms_done == ms_total and deploy_status != "healthy":
+                    new_status = "shipped"
+                # Deploy-based transitions
+                elif deploy_status == "healthy":
+                    if old_status in ("development", "paused"):
+                        new_status = "deployed"
+                elif deploy_status in ("stopped", "suspended"):
+                    if old_status == "deployed":
+                        new_status = "paused"
+                # First code → development
+                elif old_status == "research" and has_code:
+                    new_status = "development"
+
+                if new_status != old_status:
+                    conn.execute(
+                        "UPDATE projects SET status = ?, updated_at = datetime('now') WHERE id = ?",
+                        (new_status, pid),
+                    )
+                    log.info("[status] %s: %s → %s", proj["name"], old_status, new_status)
+
+    except Exception as exc:
+        log.warning("[status] sync failed: %s", exc)
+
+
 # ── scheduler setup ──────────────────────────────────────────────────────────
 
 def setup_scheduler() -> AsyncIOScheduler:
@@ -497,6 +576,7 @@ def setup_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(poll_fly_billing, "interval", seconds=3600, id="fly_billing", replace_existing=True)
     scheduler.add_job(poll_github_loc,  "interval", seconds=21600, id="github_loc", replace_existing=True)
     scheduler.add_job(poll_github_repos,"interval", seconds=21600, id="github_repos", replace_existing=True)
+    scheduler.add_job(sync_project_status, "interval", seconds=120, id="status_sync", replace_existing=True)
     return scheduler
 
 
@@ -505,3 +585,4 @@ async def run_all_now() -> None:
     await poll_flyio()
     await poll_railway()
     await poll_fly_billing()
+    await sync_project_status()
