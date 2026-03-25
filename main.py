@@ -75,8 +75,8 @@ class CanonicalHostMiddleware(BaseHTTPMiddleware):
         if path == "/api/health":
             return await call_next(request)
 
-        # MCP + OAuth endpoints — allowed on any host (MCP has its own OAuth 2.1)
-        if path.startswith("/mcp") or path.startswith("/.well-known") or path in ("/authorize", "/token", "/register", "/revoke"):
+        # API, WS, MCP + OAuth endpoints — allowed on any host (Faire desktop, agents, MCP)
+        if path.startswith("/api/") or path.startswith("/ws/") or path.startswith("/mcp") or path.startswith("/.well-known") or path in ("/authorize", "/token", "/register", "/revoke"):
             return await call_next(request)
 
         # Tauri/localhost origins — allowed via CORS (Faire desktop)
