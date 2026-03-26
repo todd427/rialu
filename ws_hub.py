@@ -149,7 +149,9 @@ class AgentHub:
 
         elif msg_type == "claude_status":
             sessions = data.get("sessions", [])
+            prev_sessions = self.claude_cache.get(machine, [])
             self.claude_cache[machine] = sessions
+
             # Broadcast to Faire desktop clients
             from faire_hub import faire_hub
             await faire_hub.broadcast({
@@ -157,6 +159,9 @@ class AgentHub:
                 "agent_id": machine,
                 "payload": {"machine": machine, "sessions": sessions},
             })
+
+            # Auto-create decision when CC session starts waiting
+            await self._check_cc_waiting(machine, sessions, prev_sessions)
 
         elif msg_type in ("terminal_data", "pane_data"):
             channel = data.get("channel", "")
@@ -215,6 +220,57 @@ class AgentHub:
                 "repos": data.get("repos", []),
             },
         })
+
+    async def _check_cc_waiting(self, machine: str, sessions: list, prev_sessions: list):
+        """Create a decision when a CC session starts waiting for user input."""
+        # Track which sessions were already waiting to avoid duplicate decisions
+        prev_waiting = {s.get("pane_id") for s in prev_sessions if s.get("claude_state") == "waiting"}
+
+        for s in sessions:
+            if s.get("claude_state") == "waiting" and s.get("pane_id") not in prev_waiting:
+                prompt = s.get("waiting_prompt", "Claude Code is waiting")
+                pane_id = s.get("pane_id", "unknown")
+                last_lines = s.get("last_lines", [])
+                context = "\n".join(last_lines[-5:]) if last_lines else ""
+
+                log.info("CC waiting detected on %s pane %s: %s", machine, pane_id, prompt)
+
+                # Create a decision
+                try:
+                    from db import db
+                    decision_id = str(uuid.uuid4())
+                    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                    payload = json.dumps({
+                        "summary": f"Claude Code on {machine} is waiting: {prompt}",
+                        "project": {"name": machine, "type": "cc-session"},
+                        "agent": {"id": machine, "name": f"cc-{pane_id}", "machine": machine},
+                        "current_state": {"pane_id": pane_id, "prompt": prompt, "context": context},
+                        "proposed_state": {"action": "respond to Claude Code"},
+                    })
+                    with db() as conn:
+                        conn.execute(
+                            """INSERT INTO decisions (id, project_id, trigger_type, priority, payload, timeout_secs, created_at)
+                               VALUES (?, (SELECT id FROM projects WHERE LOWER(machine) = ? LIMIT 1), 'ai_approval', 2, ?, 600, ?)""",
+                            (decision_id, machine, payload, now),
+                        )
+
+                    # Broadcast decision.new
+                    from faire_hub import faire_hub
+                    await faire_hub.broadcast({
+                        "event": "decision.new",
+                        "agent_id": machine,
+                        "payload": {
+                            "id": decision_id,
+                            "trigger_type": "ai_approval",
+                            "priority": 2,
+                            "status": "pending",
+                            "payload": payload,
+                            "timeout_secs": 600,
+                            "created_at": now,
+                        },
+                    })
+                except Exception:
+                    log.exception("Failed to create CC waiting decision")
 
     def _store_api_scan(self, api_scan: dict):
         """Store API scan results in api_registry and api_project_map."""
