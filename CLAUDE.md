@@ -18,7 +18,7 @@ All API keys are stored in the Rialú key vault (AES-256-GCM encrypted with Sham
 # Run dev server (port 8080)
 python main.py
 
-# Run all tests (203 passing)
+# Run all tests (225 collected)
 RIALU_TEST=1 python -m pytest tests/ -v
 
 # Run a single test file
@@ -56,7 +56,8 @@ python seed_config.py
 
 **Core modules:**
 - `auth.py` — Bearer token verification for Faire/MCP clients
-- `mcp_server.py` — FastMCP server at `/mcp` (vault + project tools)
+- `mcp_server.py` — MCP server at `/mcp` (OAuth 2.1, vault tools incl. generate_key, project tools)
+- `key_vault.py` — AES-256-GCM encryption + random key generation
 - `faire_hub.py` — WebSocket broadcast hub for Faire desktop clients
 - `ws_hub.py` — WebSocket hub for rialu-agent connections
 
@@ -66,6 +67,7 @@ python seed_config.py
 - Fly.io billing (1hr) — cost estimation per app
 - GitHub LOC (6hr) — commit stats per project
 - GitHub repos (6hr) — cache all user repos, detect untracked
+- Project status sync (2min) — auto-transition based on deploys, commits, milestones
 
 **Frontend:** Single-file vanilla JS SPA (`static/index.html`). Tabs: Projects (list/kanban/timeline views), Work log, Machines, Deployments, Sentinel, Budget & APIs, Mnemos, MCP, Keys. 4 themes (dark/light/slate/terminal). Also serves as backend for Faire (Tauri desktop client) via WebSocket + REST.
 
@@ -79,7 +81,8 @@ python seed_config.py
 - **Poller graceful degradation:** Missing API tokens → log warning and skip, never crash.
 - **Test isolation:** Each test gets its own SQLite file via `fresh_db` fixture (autouse). `no_scheduler` fixture stubs APScheduler.
 - **All costs in EUR.** DB column is still named `cost_gbp` (SQLite rename limitation) but values are EUR.
-- **CanonicalHostMiddleware** redirects non-rialu.ie hosts. When hitting the app from inside the Fly machine, pass `Host: rialu.ie` header.
+- **CanonicalHostMiddleware** — `rialu.fly.dev` locked down (421) except health, MCP OAuth, API, and WS paths. When hitting the app from inside the Fly machine, pass `Host: rialu.ie` header.
+- **MCP OAuth 2.1** — DCR + PKCE, auto-approve, file-backed state at `/data/oauth_state.json`. Session manager runs in app lifespan. Connector URL: `https://rialu.fly.dev/mcp`
 
 ## Fly Secrets Required
 
@@ -92,5 +95,8 @@ python seed_config.py
 - **Phase 4:** Complete. Mnemos integration (stats/search/auto-ingest), GitHub repo discovery + adoption + creation, Faire Phase 1 (decisions queue, agents registry, WS broadcast hub, CC stream-json wrapper, event pipeline)
 - **Phase 5-6:** Complete. Bearer token auth, HMAC enforcement, FastMCP server at /mcp (vault + project tools), timeline + agent-events API, Faire desktop client support (CORS, WebSocket hub)
 - **Phase 7:** In progress. Constellation grouping for projects
-- **Remaining:** Nothing — all planned phases complete
-- **Tests:** 213 passing across 24 test files
+- **MCP connector:** Live on Claude.ai at `rialu.fly.dev/mcp` — vault CRUD + generate_key + project listing
+- **Auto status sync:** Projects auto-transition (research→development→deployed→paused→shipped) based on deploy health, git commits, and milestone completion
+- **CSV exports:** All major data types downloadable from the SPA
+- **Security:** `rialu.fly.dev` locked down, MCP self-authenticating via OAuth 2.1
+- **Tests:** 225 collected across 25 test files
