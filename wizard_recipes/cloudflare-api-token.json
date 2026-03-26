@@ -1,0 +1,85 @@
+{
+  "id": "cloudflare-api-token",
+  "name": "Cloudflare Scoped API Token",
+  "provider": "Cloudflare",
+  "description": "Creates a scoped API token in Cloudflare. Unlike the legacy Global API Key, scoped tokens follow least-privilege by letting you restrict permissions to specific zones, accounts, and actions.",
+  "env_var": "CF_API_TOKEN",
+  "tags": ["dns", "cloudflare", "infrastructure", "api", "cdn"],
+  "prereqs": [],
+  "steps": [
+    {
+      "id": 1,
+      "title": "Open the Cloudflare API Tokens page",
+      "instruction": "Sign in to the Cloudflare dashboard and navigate to your profile's API Tokens page.",
+      "url": "https://dash.cloudflare.com/profile/api-tokens"
+    },
+    {
+      "id": 2,
+      "title": "Click 'Create Token'",
+      "instruction": "Click the 'Create Token' button. You will see a list of token templates and a 'Create Custom Token' option at the bottom.",
+      "screenshot_hint": "Blue 'Create Token' button at the top of the API Tokens section"
+    },
+    {
+      "id": 3,
+      "title": "Choose a template or create a custom token",
+      "instruction": "Cloudflare offers templates such as 'Edit zone DNS', 'Read analytics', and 'WordPress'. If one matches your use case, click 'Use template' next to it. Otherwise, scroll to the bottom and click 'Get started' under 'Create Custom Token' for full control over permissions.",
+      "screenshot_hint": "List of token templates with 'Use template' buttons, and a 'Create Custom Token' section at the bottom"
+    },
+    {
+      "id": 4,
+      "title": "Name the token",
+      "instruction": "Enter a descriptive name for the token, for example 'rialu-dns-edit' or 'deploy-worker-token'. Good names include the purpose and scope so you can identify the token later.",
+      "input_label": "Token name",
+      "input_type": "text"
+    },
+    {
+      "id": 5,
+      "title": "Configure permissions",
+      "instruction": "Under 'Permissions', add the specific permission grants this token needs. Each permission has three parts: the resource category (Account, Zone, or User), the resource type (e.g. DNS, Workers Scripts, Zone Settings), and the access level (Read or Edit). Add only the permissions you actually need — for example, 'Zone / DNS / Edit' for DNS record management.",
+      "warning": "Follow the principle of least privilege. Do not grant Edit access where Read is sufficient, and scope to specific zones rather than 'All zones' when possible."
+    },
+    {
+      "id": 6,
+      "title": "Restrict zone resources",
+      "instruction": "Under 'Zone Resources', choose which zones this token can access. Select 'Include / Specific zone' and pick the zone(s) you need, or 'All zones' if the token must operate across your entire account.",
+      "screenshot_hint": "Dropdown for 'Include' or 'Exclude' with a zone picker"
+    },
+    {
+      "id": 7,
+      "title": "Optionally restrict by IP",
+      "instruction": "Under 'Client IP Address Filtering', you can restrict the token to only work from specific IP addresses or CIDR ranges. This is useful for server-to-server tokens with a known egress IP.",
+      "optional": true
+    },
+    {
+      "id": 8,
+      "title": "Optionally set a TTL",
+      "instruction": "Under 'TTL', you can set a start and end date for the token. After the end date, the token automatically stops working. Leave blank for no expiration.",
+      "optional": true
+    },
+    {
+      "id": 9,
+      "title": "Review and create",
+      "instruction": "Click 'Continue to summary' to review the token's permissions, zone scope, and any IP or TTL restrictions. Confirm everything is correct, then click 'Create Token'.",
+      "screenshot_hint": "Summary page showing permission grants and a 'Create Token' button"
+    },
+    {
+      "id": 10,
+      "title": "Copy the token",
+      "instruction": "Cloudflare displays the token value on the confirmation page. Copy it immediately using the copy button or by selecting the text.",
+      "input_label": "Cloudflare API Token",
+      "input_type": "secret",
+      "warning": "Cloudflare only shows the token once. If you leave this page without copying, you must delete the token and create a new one."
+    },
+    {
+      "id": 11,
+      "title": "Verify the token works",
+      "instruction": "Cloudflare provides a test command on the same page. You can also run: curl -s -H 'Authorization: Bearer <your-token>' https://api.cloudflare.com/client/v4/user/tokens/verify — a successful response will show '\"status\": \"active\"'.",
+      "screenshot_hint": "Terminal showing JSON with status 'active' and a success result"
+    }
+  ],
+  "vault_entry": {
+    "name_template": "Cloudflare API Token — {token_name}",
+    "provider": "cloudflare",
+    "notes": "Scoped API token. Check permissions summary in Cloudflare dashboard for exact grants."
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "id": "railway-api-token",
+  "name": "Railway Account API Token",
+  "provider": "Railway",
+  "description": "Creates an account-level API token for Railway. This token provides access to all projects and services in your Railway account via the Railway GraphQL API.",
+  "env_var": "RAILWAY_API_TOKEN",
+  "tags": ["deploy", "railway", "infrastructure", "api"],
+  "prereqs": [],
+  "steps": [
+    {
+      "id": 1,
+      "title": "Open the Railway tokens page",
+      "instruction": "Sign in to your Railway account and navigate to Account Settings > Tokens.",
+      "url": "https://railway.com/account/tokens"
+    },
+    {
+      "id": 2,
+      "title": "Click 'Create Token' or '+ New Token'",
+      "instruction": "Look for the button to create a new API token. It may be labelled 'Create Token', '+ New Token', or similar, depending on the current Railway UI.",
+      "screenshot_hint": "Button to create a new token, usually near the top of the tokens list"
+    },
+    {
+      "id": 3,
+      "title": "Name the token",
+      "instruction": "Enter a descriptive name for the token so you can identify it later, for example 'rialu-poller' or 'deploy-automation'.",
+      "input_label": "Token name",
+      "input_type": "text"
+    },
+    {
+      "id": 4,
+      "title": "Confirm creation",
+      "instruction": "Click the confirmation button to generate the token. Railway will display the token value on screen.",
+      "screenshot_hint": "Dialog or inline display showing the newly generated token string"
+    },
+    {
+      "id": 5,
+      "title": "Copy the token",
+      "instruction": "Copy the token value immediately. Railway account tokens are typically long alphanumeric strings (UUID-like or base64-encoded).",
+      "input_label": "Railway API Token",
+      "input_type": "secret",
+      "warning": "Railway only displays the token once at creation. If you navigate away without copying it, you will need to delete the token and create a new one."
+    },
+    {
+      "id": 6,
+      "title": "Verify the token works",
+      "instruction": "Open a terminal and run: curl -s -X POST https://backboard.railway.com/graphql/v2 -H 'Content-Type: application/json' -H 'Authorization: Bearer <your-token>' -d '{\"query\":\"{me{email}}\"}' — you should see your email in the JSON response.",
+      "screenshot_hint": "Terminal showing a JSON response containing your Railway account email"
+    }
+  ],
+  "vault_entry": {
+    "name_template": "Railway API Token — {token_name}",
+    "provider": "railway",
+    "notes": "Account-level API token for Railway GraphQL API. Access to all projects and services."
+  }
+}

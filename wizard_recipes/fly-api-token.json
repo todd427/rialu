@@ -1,0 +1,57 @@
+{
+  "id": "fly-api-token",
+  "name": "Fly.io Personal API Token",
+  "provider": "Fly.io",
+  "description": "Generates a personal access token for the Fly.io API. This token grants full access to all organisations and apps your Fly.io account can manage.",
+  "env_var": "FLY_API_TOKEN",
+  "tags": ["deploy", "fly", "infrastructure", "api"],
+  "prereqs": [],
+  "steps": [
+    {
+      "id": 1,
+      "title": "Open the Fly.io personal access tokens page",
+      "instruction": "Sign in to your Fly.io account and navigate to the personal access tokens page.",
+      "url": "https://fly.io/user/personal_access_tokens"
+    },
+    {
+      "id": 2,
+      "title": "Name your new token",
+      "instruction": "In the 'Token name' field, enter a descriptive label so you can identify this token later, for example 'rialu-poller' or 'claude-code-deploy'.",
+      "input_label": "Token name",
+      "input_type": "text",
+      "screenshot_hint": "Text input labelled 'Token name' with a 'Create token' button beside or below it"
+    },
+    {
+      "id": 3,
+      "title": "Optionally set an expiration",
+      "instruction": "If an expiration dropdown is shown, choose how long the token should be valid. Select 'No expiration' for long-lived automation tokens, or pick a shorter duration if you prefer to rotate regularly.",
+      "optional": true,
+      "screenshot_hint": "Dropdown for token expiration period"
+    },
+    {
+      "id": 4,
+      "title": "Create the token",
+      "instruction": "Click the 'Create token' button. The page will display your new token value once.",
+      "screenshot_hint": "A green or highlighted box showing the newly created token string starting with 'FlyV1 ...'"
+    },
+    {
+      "id": 5,
+      "title": "Copy the token",
+      "instruction": "Copy the displayed token immediately. It typically starts with 'FlyV1 ' followed by a long alphanumeric string.",
+      "input_label": "Fly.io API Token",
+      "input_type": "secret",
+      "warning": "Fly.io only shows the token once at creation time. If you lose it, you must revoke it and create a new one."
+    },
+    {
+      "id": 6,
+      "title": "Verify the token works",
+      "instruction": "Open a terminal and run: curl -s -H \"Authorization: Bearer <your-token>\" https://api.fly.io/graphql -d '{\"query\":\"{currentUser{email}}\"}' — you should see your email address in the response.",
+      "screenshot_hint": "Terminal showing a JSON response with your email"
+    }
+  ],
+  "vault_entry": {
+    "name_template": "Fly.io API Token — {token_name}",
+    "provider": "fly",
+    "notes": "Personal access token for Fly.io API and CLI. Full access to all orgs."
+  }
+}

@@ -198,6 +198,8 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
   <div class="ntab" data-p="mnemos">Mnemos</div>
   <div class="ntab" data-p="mcp">MCP</div>
   <div class="ntab" data-p="keys">Keys</div>
+  <div class="ntab" data-p="logins">Logins</div>
+  <div class="ntab" data-p="wizard">Wizard</div>
 </div>
 
 <!-- PROJECTS -->
@@ -585,6 +587,111 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
   </div>
 </div>
 
+<!-- LOGINS -->
+<div id="logins" class="panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <span class="slabel" id="login-count">Logins</span>
+    <button class="btn btn-acc" onclick="toggleLoginForm()">+ Add login</button>
+  </div>
+  <div class="form-block" id="login-form" style="display:none">
+    <div class="dlabel" style="margin-bottom:9px;color:var(--acc3);font-size:11px" id="lf-title">Add login</div>
+    <input type="hidden" id="lf-edit-id" value="">
+    <div class="form-row">
+      <div class="form-field" style="flex:2"><label>Name or URL</label><input type="text" id="lf-name" placeholder="e.g. Amazon.com or Railway Dashboard" oninput="autoFillFromName()"></div>
+      <div class="form-field"><label>URL</label><input type="text" id="lf-url" placeholder="auto-filled" oninput="autoFillFromUrl()"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Username / email</label><input type="text" id="lf-user" placeholder="todd427@gmail.com" oninput="autoFillLogin()"></div>
+      <div class="form-field"><label>Auth method</label>
+        <select id="lf-auth" onchange="togglePassField()">
+          <option value="password">Password</option>
+          <option value="google-oauth">Google OAuth</option>
+          <option value="github-oauth">GitHub OAuth</option>
+          <option value="huggingface">HuggingFace</option>
+          <option value="passkey">Passkey / WebAuthn</option>
+          <option value="sso">SSO / SAML</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row" id="lf-pass-row">
+      <div class="form-field"><label>Password</label><div style="display:flex;gap:4px"><input type="password" id="lf-pass" style="flex:1;background:var(--bg);border:0.5px solid var(--bd2);border-radius:5px;padding:6px 9px;font-size:12px;color:var(--text);font-family:inherit;outline:none"><button type="button" class="btn" onclick="const p=document.getElementById('lf-pass');p.type=p.type==='password'?'text':'password'" style="padding:4px 8px">👁</button></div></div>
+      <div class="form-field"><label>TOTP secret (optional)</label><input type="password" id="lf-totp" placeholder="2FA backup code"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>Notes</label><input type="text" id="lf-notes" placeholder="Optional"></div>
+    </div>
+    <div style="display:flex;gap:7px">
+      <button class="btn btn-acc" id="lf-submit-btn" onclick="submitLogin()">Save login</button>
+      <button class="btn" onclick="toggleLoginForm()">Cancel</button>
+    </div>
+  </div>
+  <div style="background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;overflow:hidden">
+    <table class="tbl">
+      <thead><tr><th style="width:140px">Name</th><th style="width:120px">Username</th><th style="width:70px">Auth</th><th style="width:70px">Password</th><th>URL</th><th style="width:100px"></th></tr></thead>
+      <tbody id="login-tbody"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- WIZARD -->
+<div id="wizard" class="panel">
+  <div id="wiz-grid">
+    <div class="row">
+      <span class="slabel" id="wiz-count">Secrets Wizard</span>
+      <input type="text" id="wiz-search" placeholder="Filter by provider or tag…" oninput="filterWizard()" style="background:var(--bg2);border:0.5px solid var(--bd2);border-radius:5px;padding:6px 10px;font-size:12px;color:var(--text);font-family:inherit;outline:none;width:220px">
+    </div>
+    <div id="wiz-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin-top:10px"><div class="loading">Loading recipes…</div></div>
+  </div>
+  <div id="wiz-flow" style="display:none">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <button class="btn" onclick="exitWizard()">← Back to recipes</button>
+      <span class="slabel" id="wiz-recipe-name"></span>
+    </div>
+    <div id="wiz-prereqs" style="display:none;margin-bottom:12px">
+      <div class="form-block" style="border-color:var(--warn)">
+        <div class="dlabel" style="color:var(--warn);margin-bottom:6px">Prerequisites</div>
+        <ul id="wiz-prereqs-list" style="font-size:12px;color:var(--t2);padding-left:16px;margin:0"></ul>
+      </div>
+    </div>
+    <div id="wiz-step" class="form-block">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <span class="slabel" id="wiz-step-counter" style="color:var(--acc3)"></span>
+        <span class="slabel" id="wiz-step-title" style="font-size:13px;text-transform:none;letter-spacing:0;color:var(--text)"></span>
+      </div>
+      <div id="wiz-instruction" style="font-size:12px;color:var(--t2);line-height:1.7;margin-bottom:10px"></div>
+      <div id="wiz-url-row" style="display:none;margin-bottom:10px">
+        <a id="wiz-url-link" class="btn btn-acc" style="text-decoration:none;cursor:pointer" onclick="window.open(this.href,'_blank','noopener,width=1200,height=800');return false">Open in browser →</a>
+      </div>
+      <div id="wiz-hint" style="display:none;font-size:11px;color:var(--t3);font-style:italic;margin-bottom:10px"></div>
+      <div id="wiz-warning" style="display:none;background:var(--warn2);border:0.5px solid var(--warn);border-radius:5px;padding:8px 10px;font-size:11px;color:var(--warn);margin-bottom:10px"></div>
+      <div id="wiz-input-row" style="display:none;margin-bottom:10px">
+        <label id="wiz-input-label" class="dlabel" style="margin-bottom:4px"></label>
+        <div style="display:flex;gap:6px">
+          <input type="password" id="wiz-input" style="flex:1;background:var(--bg);border:0.5px solid var(--bd2);border-radius:5px;padding:7px 10px;font-size:12px;color:var(--text);font-family:monospace;outline:none">
+          <button class="btn" onclick="document.getElementById('wiz-input').type=document.getElementById('wiz-input').type==='password'?'text':'password'">👁</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;justify-content:flex-end">
+        <button class="btn" id="wiz-back-btn" onclick="wizStep(-1)">← Back</button>
+        <button class="btn" id="wiz-skip-btn" onclick="wizStep(1)" style="display:none">Skip</button>
+        <button class="btn btn-acc" id="wiz-next-btn" onclick="wizStep(1)">Next →</button>
+      </div>
+    </div>
+  </div>
+  <div id="wiz-done" style="display:none">
+    <div class="form-block green">
+      <div class="dlabel" style="color:var(--ok);margin-bottom:8px">Wizard complete</div>
+      <div id="wiz-summary" style="font-size:12px;color:var(--t2);margin-bottom:12px"></div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-ok" onclick="wizStore()">Store in vault</button>
+        <button class="btn" onclick="exitWizard()">Back to recipes</button>
+      </div>
+      <div id="wiz-store-result" style="margin-top:10px"></div>
+    </div>
+  </div>
+</div>
+
 </div><!-- /app -->
 
 <script>
@@ -611,6 +718,8 @@ const TAB_LOADERS = {
   mnemos: loadMnemos,
   mcp: loadMcp,
   keys: loadKeys,
+  logins: loadLogins,
+  wizard: loadWizard,
 };
 let loadedTabs = new Set();
 
@@ -1246,6 +1355,362 @@ async function refreshDeploys(){
   await loadDeployments();
   btn.textContent = orig;
   btn.disabled = false;
+}
+
+// ── logins ────────────────────────────────────────────────────────────────
+const AUTH_PILLS = {
+  'password':'gray','google-oauth':'ok','github-oauth':'info',
+  'huggingface':'warn','passkey':'pur','sso':'info','other':'gray',
+};
+
+async function loadLogins(){
+  try {
+    const logins = await fetch('/api/logins').then(r=>r.json());
+    document.getElementById('login-count').textContent = `Logins — ${logins.length} stored`;
+    const tbody = document.getElementById('login-tbody');
+    if(!logins.length){tbody.innerHTML='<tr><td colspan="6" class="empty">No logins stored yet.</td></tr>';return;}
+    tbody.innerHTML = logins.map(l => {
+      const auth = l.auth_method||'password';
+      const authPill = `<span class="pill ${AUTH_PILLS[auth]||'gray'}" style="font-size:9px">${esc(auth)}</span>`;
+      return `<tr>
+        <td style="color:var(--text);font-weight:500">${esc(l.name)}</td>
+        <td style="font-size:11px">${esc(l.username||'')}</td>
+        <td>${authPill}</td>
+        <td class="mono" style="font-size:10px;color:var(--t3)">${auth==='password'?esc(l.pwd_hint||''):'—'}</td>
+        <td>${l.url?`<a href="${esc(l.url)}" target="_blank" style="font-size:10px;color:var(--acc)">${esc(l.url.replace('https://','').substring(0,30))}</a>`:'—'}</td>
+        <td style="display:flex;gap:4px">
+          ${auth==='password'?`<button class="btn" style="font-size:10px;padding:2px 6px" onclick="revealLogin(${l.id})">Reveal</button>`:''}
+          <button class="btn" style="font-size:10px;padding:2px 6px" onclick="editLogin(${l.id})">Edit</button>
+          <span style="cursor:pointer;color:var(--t3);font-size:11px" onclick="deleteLogin(${l.id})">&#10005;</span>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch(e){
+    document.getElementById('login-tbody').innerHTML='<tr><td colspan="6" class="empty">Error loading logins.</td></tr>';
+  }
+}
+
+async function revealLogin(id){
+  const r = await fetch(`/api/logins/${id}/reveal`,{method:'POST'});
+  const d = await r.json();
+  if(!r.ok){alert(d.detail||'Error');return;}
+  let msg = `Username: ${d.username||'—'}\nPassword: ${d.password}`;
+  if(d.totp_secret) msg += `\nTOTP: ${d.totp_secret}`;
+  try { await navigator.clipboard.writeText(d.password); msg += '\n\nPassword copied to clipboard.'; } catch(e){}
+  alert(msg);
+}
+
+function _domainName(host){
+  host = host.replace(/^www\./,'');
+  const parts = host.split('.');
+  if (parts.length <= 1) return host;
+  parts[0] = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+  return parts.join('.');
+}
+
+function autoFillFromName(){
+  const nameEl = document.getElementById('lf-name');
+  const urlEl = document.getElementById('lf-url');
+  if (urlEl.value && !urlEl.dataset.auto) return;
+  const val = nameEl.value.trim();
+  if (val.includes('.') && !val.includes(' ')) {
+    let domain = val.toLowerCase();
+    if (!domain.includes('://')) domain = 'https://' + domain;
+    try { new URL(domain); urlEl.value = domain; urlEl.dataset.auto = '1'; } catch(e){}
+  }
+}
+
+function autoFillFromUrl(){
+  const urlEl = document.getElementById('lf-url');
+  const nameEl = document.getElementById('lf-name');
+  if (nameEl.value && !nameEl.dataset.auto) return;
+  let raw = urlEl.value.trim();
+  if (raw && !raw.includes('://')) raw = 'https://' + raw;
+  try {
+    const host = new URL(raw).hostname;
+    nameEl.value = _domainName(host);
+    nameEl.dataset.auto = '1';
+    if (!urlEl.value.includes('://')) urlEl.value = 'https://' + urlEl.value;
+  } catch(e){}
+}
+
+function autoFillLogin(){
+  const user = document.getElementById('lf-user').value.trim();
+  const nameEl = document.getElementById('lf-name');
+  const urlEl = document.getElementById('lf-url');
+  if (nameEl.value && !nameEl.dataset.auto) return;
+  if (!user.includes('@')) return;
+  const domain = user.split('@')[1].toLowerCase();
+  nameEl.value = _domainName(domain);
+  nameEl.dataset.auto = '1';
+  if (!urlEl.value || urlEl.dataset.auto) { urlEl.value = `https://${domain}`; urlEl.dataset.auto = '1'; }
+}
+
+function togglePassField(){
+  const auth = document.getElementById('lf-auth').value;
+  document.getElementById('lf-pass-row').style.display = auth==='password'?'flex':'none';
+}
+
+function toggleLoginForm(reset){
+  const f = document.getElementById('login-form');
+  const showing = f.style.display==='none';
+  f.style.display = showing?'block':'none';
+  if(reset !== false && showing){
+    document.getElementById('lf-edit-id').value='';
+    document.getElementById('lf-title').textContent='Add login';
+    document.getElementById('lf-submit-btn').textContent='Save login';
+    ['lf-name','lf-url','lf-user','lf-pass','lf-totp','lf-notes'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('lf-auth').value='password';
+    document.getElementById('lf-name').dataset.auto='';
+    document.getElementById('lf-url').dataset.auto='';
+    togglePassField();
+  }
+}
+
+async function editLogin(id){
+  const r = await fetch(`/api/logins/${id}/reveal`,{method:'POST'});
+  const d = await r.json();
+  if(!r.ok){alert(d.detail||'Error');return;}
+  const all = await fetch('/api/logins').then(r=>r.json());
+  const entry = all.find(l=>l.id===id);
+  // Show form without reset
+  document.getElementById('login-form').style.display='block';
+  document.getElementById('lf-edit-id').value=id;
+  document.getElementById('lf-title').textContent='Edit login';
+  document.getElementById('lf-submit-btn').textContent='Update login';
+  document.getElementById('lf-name').value=d.name||'';
+  document.getElementById('lf-url').value=d.url||'';
+  document.getElementById('lf-user').value=d.username||'';
+  document.getElementById('lf-pass').value=d.password||'';
+  document.getElementById('lf-totp').value=d.totp_secret||'';
+  document.getElementById('lf-notes').value=d.notes||'';
+  document.getElementById('lf-auth').value=entry?.auth_method||'password';
+  document.getElementById('lf-name').dataset.auto='';
+  document.getElementById('lf-url').dataset.auto='';
+  togglePassField();
+  document.getElementById('login-form').scrollIntoView({behavior:'smooth'});
+}
+
+async function submitLogin(){
+  const editId = document.getElementById('lf-edit-id').value;
+  const name = document.getElementById('lf-name').value.trim();
+  const auth = document.getElementById('lf-auth').value;
+  const pass = document.getElementById('lf-pass').value;
+  if(!name){alert('Name required');return;}
+  if(auth==='password' && !pass && !editId){alert('Password required');return;}
+  const body = {
+    name,
+    username: document.getElementById('lf-user').value.trim()||'',
+    auth_method: auth,
+    url: document.getElementById('lf-url').value||null,
+    notes: document.getElementById('lf-notes').value||null,
+  };
+  if(auth==='password'){
+    if(pass) body.password = pass;
+    const totp = document.getElementById('lf-totp').value;
+    if(totp) body.totp_secret = totp;
+  } else {
+    body.password = '';
+  }
+  const method = editId ? 'PUT' : 'POST';
+  const url = editId ? `/api/logins/${editId}` : '/api/logins';
+  const r = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  if(!r.ok){const d=await r.json();alert(d.detail||'Error');return;}
+  toggleLoginForm();
+  loadedTabs.delete('logins');
+  loadLogins();
+}
+
+async function deleteLogin(id){
+  if(!confirm('Delete this login?'))return;
+  await fetch(`/api/logins/${id}`,{method:'DELETE'});
+  loadedTabs.delete('logins');
+  loadLogins();
+}
+
+// ── wizard ────────────────────────────────────────────────────────────────
+let _wizRecipes = [];
+let _wizCurrent = null; // {recipe, stepIdx, captured: {stepId: value}}
+
+const PROVIDER_ICONS = {
+  'Google':'G','Fly.io':'F','Railway':'R','Anthropic':'A',
+  'Cloudflare':'CF','GitHub':'GH','OpenAI':'O','ElevenLabs':'E',
+};
+
+async function loadWizard(){
+  try {
+    _wizRecipes = await fetch('/api/wizard/recipes').then(r=>r.json());
+    document.getElementById('wiz-count').textContent = `Secrets Wizard — ${_wizRecipes.length} recipes`;
+    renderWizCards(_wizRecipes);
+  } catch(e){
+    document.getElementById('wiz-cards').innerHTML = '<div class="empty">Could not load recipes.</div>';
+  }
+}
+
+function renderWizCards(recipes){
+  const el = document.getElementById('wiz-cards');
+  if(!recipes.length){el.innerHTML='<div class="empty">No recipes match.</div>';return;}
+  el.innerHTML = recipes.map(r => `
+    <div class="prow" style="cursor:pointer" onclick="startWizard('${esc(r.id)}')">
+      <div class="prow-summary" style="padding:12px">
+        <span style="width:28px;height:28px;border-radius:6px;background:var(--acc2);color:var(--acc3);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0">${PROVIDER_ICONS[r.provider]||r.provider[0]}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:500;color:var(--text)">${esc(r.name)}</div>
+          <div style="font-size:11px;color:var(--t3);margin-top:2px">${esc(r.description)}</div>
+        </div>
+        <span class="pill info" style="font-size:9px;flex-shrink:0">${esc(r.provider)}</span>
+      </div>
+    </div>`).join('');
+}
+
+function filterWizard(){
+  const q = document.getElementById('wiz-search').value.toLowerCase();
+  if(!q){renderWizCards(_wizRecipes);return;}
+  renderWizCards(_wizRecipes.filter(r =>
+    r.name.toLowerCase().includes(q) || r.provider.toLowerCase().includes(q) ||
+    (r.tags||[]).some(t=>t.toLowerCase().includes(q))
+  ));
+}
+
+async function startWizard(id){
+  try {
+    const recipe = await fetch(`/api/wizard/recipes/${id}`).then(r=>r.json());
+    _wizCurrent = {recipe, stepIdx:0, captured:{}};
+    document.getElementById('wiz-grid').style.display='none';
+    document.getElementById('wiz-done').style.display='none';
+    document.getElementById('wiz-flow').style.display='block';
+    document.getElementById('wiz-recipe-name').textContent = recipe.name;
+    // Prereqs
+    const pp = document.getElementById('wiz-prereqs');
+    if(recipe.prereqs && recipe.prereqs.length){
+      pp.style.display='block';
+      document.getElementById('wiz-prereqs-list').innerHTML = recipe.prereqs.map(p=>`<li>${esc(p)}</li>`).join('');
+    } else { pp.style.display='none'; }
+    renderWizStep();
+  } catch(e){ alert('Failed to load recipe'); }
+}
+
+function renderWizStep(){
+  const {recipe, stepIdx, captured} = _wizCurrent;
+  const step = recipe.steps[stepIdx];
+  const total = recipe.steps.length;
+  document.getElementById('wiz-step-counter').textContent = `Step ${stepIdx+1} of ${total}`;
+  document.getElementById('wiz-step-title').textContent = step.title;
+  document.getElementById('wiz-instruction').textContent = step.instruction;
+  // URL
+  const urlRow = document.getElementById('wiz-url-row');
+  if(step.url){urlRow.style.display='block';document.getElementById('wiz-url-link').href=step.url;}
+  else{urlRow.style.display='none';}
+  // Hint
+  const hint = document.getElementById('wiz-hint');
+  if(step.screenshot_hint){hint.style.display='block';hint.textContent=step.screenshot_hint;}
+  else{hint.style.display='none';}
+  // Warning
+  const warn = document.getElementById('wiz-warning');
+  if(step.warning){warn.style.display='block';warn.textContent=step.warning;}
+  else{warn.style.display='none';}
+  // Input
+  const irow = document.getElementById('wiz-input-row');
+  if(step.input_type){
+    irow.style.display='block';
+    document.getElementById('wiz-input-label').textContent = step.input_label||'Paste here';
+    const inp = document.getElementById('wiz-input');
+    inp.type = step.input_type==='secret'?'password':'text';
+    inp.value = captured[step.id]||'';
+  } else {irow.style.display='none';}
+  // Skip button
+  document.getElementById('wiz-skip-btn').style.display = step.optional?'inline-flex':'none';
+  // Back button
+  document.getElementById('wiz-back-btn').style.display = stepIdx>0?'inline-flex':'none';
+  // Next button text
+  document.getElementById('wiz-next-btn').textContent = stepIdx===total-1?'Finish':'Next →';
+  // Hide prereqs after first step
+  if(stepIdx>0) document.getElementById('wiz-prereqs').style.display='none';
+}
+
+function wizStep(dir){
+  const {recipe, stepIdx} = _wizCurrent;
+  const step = recipe.steps[stepIdx];
+  // Capture input if present
+  if(step.input_type){
+    const val = document.getElementById('wiz-input').value.trim();
+    if(val) _wizCurrent.captured[step.id] = val;
+  }
+  const next = stepIdx + dir;
+  if(next < 0) return;
+  if(next >= recipe.steps.length){
+    // Done
+    showWizDone();
+    return;
+  }
+  _wizCurrent.stepIdx = next;
+  renderWizStep();
+}
+
+function showWizDone(){
+  document.getElementById('wiz-flow').style.display='none';
+  document.getElementById('wiz-done').style.display='block';
+  const {recipe, captured} = _wizCurrent;
+  const entries = Object.entries(captured);
+  if(!entries.length){
+    document.getElementById('wiz-summary').innerHTML = '<span style="color:var(--t3)">No secrets captured. Nothing to store.</span>';
+    return;
+  }
+  document.getElementById('wiz-summary').innerHTML = entries.map(([sid,val])=>{
+    const step = recipe.steps.find(s=>s.id===sid);
+    const label = step?.input_label || sid;
+    const envVar = step?.env_var_override || recipe.env_var || '';
+    return `<div style="display:flex;gap:8px;padding:3px 0;align-items:center">
+      <span style="color:var(--ok)">&#10003;</span>
+      <span style="flex:1">${esc(label)}</span>
+      ${envVar?`<span class="pill gray" style="font-size:9px">${esc(envVar)}</span>`:''}
+      <span class="mono" style="font-size:10px;color:var(--t3)">${esc(val.substring(0,4))}${'•'.repeat(8)}</span>
+    </div>`;
+  }).join('');
+  document.getElementById('wiz-store-result').innerHTML = '';
+}
+
+async function wizStore(){
+  const {recipe, captured} = _wizCurrent;
+  const result = document.getElementById('wiz-store-result');
+  result.innerHTML = '<div class="loading">Storing…</div>';
+  const results = [];
+  for(const [sid, val] of Object.entries(captured)){
+    const step = recipe.steps.find(s=>s.id===sid);
+    const envVar = step?.env_var_override || recipe.env_var || '';
+    const nameTemplate = recipe.vault_entry?.name_template || recipe.id;
+    const name = nameTemplate.replace('{app}', recipe.provider.toLowerCase());
+    const keyName = step?.env_var_override ? name + '-' + sid : name;
+    try {
+      const r = await fetch('/api/keys', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          name: keyName,
+          provider: recipe.vault_entry?.provider || recipe.provider,
+          value: val,
+          env_var: envVar,
+          notes: recipe.vault_entry?.notes || `Via wizard: ${recipe.name}`,
+        }),
+      });
+      const d = await r.json();
+      if(r.ok) results.push({name:keyName, hint:d.hint, ok:true});
+      else results.push({name:keyName, err:d.detail||'already exists', ok:false});
+    } catch(e){
+      results.push({name:keyName, err:e.message, ok:false});
+    }
+  }
+  result.innerHTML = results.map(r => r.ok
+    ? `<div style="font-size:11px;color:var(--ok);padding:2px 0">&#10003; Stored <strong>${esc(r.name)}</strong> (hint: ${esc(r.hint)})</div>`
+    : `<div style="font-size:11px;color:var(--warn);padding:2px 0">&#9888; ${esc(r.name)}: ${esc(r.err)}</div>`
+  ).join('');
+}
+
+function exitWizard(){
+  document.getElementById('wiz-flow').style.display='none';
+  document.getElementById('wiz-done').style.display='none';
+  document.getElementById('wiz-grid').style.display='block';
+  _wizCurrent = null;
 }
 
 // ── mnemos ────────────────────────────────────────────────────────────────

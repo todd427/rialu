@@ -1,0 +1,82 @@
+{
+  "id": "cloudflare-access-service-token",
+  "name": "Cloudflare Access Service Token",
+  "provider": "Cloudflare",
+  "description": "Creates a machine-to-machine Service Token for Cloudflare Access. This generates a Client ID and Client Secret pair used to authenticate automated services (e.g. cron jobs, agents, CI/CD) against Access-protected applications without user interaction.",
+  "env_var": "CF_ACCESS_CLIENT_SECRET",
+  "tags": ["auth", "cloudflare", "zero-trust", "machine-to-machine", "service-token"],
+  "prereqs": [
+    "A Cloudflare account with a Zero Trust (Access) plan enabled.",
+    "At least one Access application already configured that the service token will authenticate against.",
+    "Permission to create service tokens in the Cloudflare Zero Trust dashboard (Super Administrator or Access administrator role)."
+  ],
+  "steps": [
+    {
+      "id": "open-zero-trust",
+      "title": "Open the Cloudflare Zero Trust dashboard",
+      "instruction": "Navigate to the Cloudflare Zero Trust dashboard. If you have multiple accounts, select the account that owns the Access application you want to authenticate against.",
+      "url": "https://one.dash.cloudflare.com"
+    },
+    {
+      "id": "navigate-service-auth",
+      "title": "Navigate to Service Auth",
+      "instruction": "In the left sidebar, expand 'Access' and click 'Service Auth'. This page lists all existing service tokens for the account.",
+      "screenshot_hint": "Left sidebar showing Access > Service Auth menu item."
+    },
+    {
+      "id": "create-service-token",
+      "title": "Create a new Service Token",
+      "instruction": "Click the 'Create Service Token' button at the top of the page.",
+      "screenshot_hint": "Blue 'Create Service Token' button at the top right of the Service Auth page."
+    },
+    {
+      "id": "name-the-token",
+      "title": "Name the Service Token",
+      "instruction": "Enter a descriptive name for the token. Use something that identifies the machine or service that will use it, e.g. 'rialu-agent-prod' or 'ci-deploy-bot'. Choose a token duration or leave as non-expiring if appropriate.",
+      "input_label": "Service Token Name",
+      "input_type": "text"
+    },
+    {
+      "id": "generate-token",
+      "title": "Generate the token",
+      "instruction": "Click 'Generate token' (or 'Create Service Token'). Cloudflare will display both the Client ID and the Client Secret on the next screen.",
+      "warning": "The Client Secret is shown only once. If you close this page without copying it, you will need to rotate the token to get a new secret."
+    },
+    {
+      "id": "copy-client-id",
+      "title": "Copy the Client ID",
+      "instruction": "Copy the 'CF-Access-Client-Id' value displayed on screen. This is a short UUID-style identifier. It is not secret but is required alongside the secret for authentication.",
+      "input_label": "CF-Access-Client-Id",
+      "input_type": "text",
+      "env_var_override": "CF_ACCESS_CLIENT_ID",
+      "screenshot_hint": "A text field labelled 'CF-Access-Client-Id' with a copy button."
+    },
+    {
+      "id": "copy-client-secret",
+      "title": "Copy the Client Secret",
+      "instruction": "Copy the 'CF-Access-Client-Secret' value displayed on screen. This is a long random string. Store it securely.",
+      "input_label": "CF-Access-Client-Secret",
+      "input_type": "secret",
+      "screenshot_hint": "A text field labelled 'CF-Access-Client-Secret' with a copy button."
+    },
+    {
+      "id": "add-policy",
+      "title": "Add a Service Auth policy to your Access application",
+      "instruction": "Go to Access > Applications, select the application you want this token to reach, and edit its policies. Add (or confirm) a policy with Action 'Service Auth' that includes this service token. Without this policy the token will be rejected even though it is valid.",
+      "url": "https://one.dash.cloudflare.com",
+      "warning": "The service token alone does not grant access. You must also add a Service Auth policy rule on the target Access application.",
+      "optional": true
+    },
+    {
+      "id": "test-token",
+      "title": "Test the token",
+      "instruction": "Verify the token works by making a request to your Access-protected endpoint with both headers set:\n\ncurl -H 'CF-Access-Client-Id: <your-client-id>' -H 'CF-Access-Client-Secret: <your-client-secret>' https://your-app.example.com/\n\nA successful response (HTTP 200) means the token and policy are configured correctly. A 403 means the policy is missing or misconfigured.",
+      "optional": true
+    }
+  ],
+  "vault_entry": {
+    "name_template": "Cloudflare Access Service Token — {token_name}",
+    "provider": "Cloudflare",
+    "notes": "Store both CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET. The client ID is not secret but is required for authentication. Both values are shown only once at creation time."
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "id": "anthropic-api-key",
+  "name": "Anthropic API Key",
+  "provider": "Anthropic",
+  "description": "Creates an API key for the Anthropic Messages API (Claude).",
+  "env_var": "ANTHROPIC_API_KEY",
+  "tags": ["ai", "anthropic", "claude", "api", "llm"],
+  "prereqs": [
+    "An Anthropic account with billing enabled (credit card on file or active plan)"
+  ],
+  "steps": [
+    {
+      "id": "open-console",
+      "title": "Open the API Keys page",
+      "instruction": "Click the button below to open the Anthropic Console directly on the API Keys page. Sign in if prompted.",
+      "url": "https://console.anthropic.com/settings/keys",
+      "screenshot_hint": "You should see a table with columns: Key, Workspace, Created by, Created at."
+    },
+    {
+      "id": "create-key",
+      "title": "Click '+ Create Key'",
+      "instruction": "Look for the '+ Create Key' button in the top-right corner of the page. Click it.",
+      "screenshot_hint": "It's a dark button in the top-right, next to the 'API keys' heading."
+    },
+    {
+      "id": "name-key",
+      "title": "Name your key",
+      "instruction": "A dialog will appear asking for a name. Type something you'll recognise later — for example 'rialu' or 'claude-code-daisy'. Then click 'Create Key'.",
+      "screenshot_hint": "Just a text field and a Create button. Keep the name short and descriptive."
+    },
+    {
+      "id": "copy-key",
+      "title": "Copy the key NOW",
+      "instruction": "The key is displayed on screen. It starts with 'sk-ant-api03-' followed by a long string. Copy the entire thing and paste it below.",
+      "input_label": "Paste your Anthropic API key here",
+      "input_type": "secret",
+      "warning": "This is the only time the full key is shown. If you close this dialog without copying it, the key is gone and you'll need to create a new one."
+    },
+    {
+      "id": "verify",
+      "title": "Verify it works (optional)",
+      "instruction": "If you want to check the key works, open a terminal and run:\n\ncurl https://api.anthropic.com/v1/messages -H 'x-api-key: YOUR_KEY' -H 'anthropic-version: 2023-06-01' -H 'Content-Type: application/json' -d '{\"model\":\"claude-sonnet-4-20250514\",\"max_tokens\":10,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}'\n\nYou should get a JSON response back.",
+      "optional": true
+    }
+  ],
+  "vault_entry": {
+    "name_template": "anthropic-api-key",
+    "provider": "Anthropic",
+    "notes": "API key for Anthropic Messages API (Claude)."
+  }
+}

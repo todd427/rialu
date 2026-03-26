@@ -342,6 +342,33 @@ MIGRATIONS = [
     """,
     # 016 — project constellations (Phase 7)
     "ALTER TABLE projects ADD COLUMN constellation TEXT",
+    # 017 — credential store (logins)
+    """
+    CREATE TABLE IF NOT EXISTS credential_store (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        name            TEXT NOT NULL UNIQUE,
+        url             TEXT,
+        username        TEXT NOT NULL,
+        encrypted_pwd   TEXT NOT NULL,
+        pwd_hint        TEXT NOT NULL DEFAULT '••••',
+        totp_secret     TEXT,
+        notes           TEXT,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS credential_audit_log (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        credential_id   INTEGER NOT NULL REFERENCES credential_store(id) ON DELETE CASCADE,
+        action          TEXT NOT NULL,
+        detail          TEXT,
+        performed_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_cred_audit ON credential_audit_log(credential_id, performed_at)",
+    # 018 — auth method on credentials
+    "ALTER TABLE credential_store ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'password'",
 ]
 
 

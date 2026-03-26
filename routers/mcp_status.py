@@ -17,6 +17,13 @@ router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
 MCP_SERVERS = [
     {
+        "name": "Rialú",
+        "url": "https://rialu.fly.dev",
+        "mcp_path": "/mcp",
+        "platform": "fly.io",
+        "description": "DevOps command centre — vault + projects",
+    },
+    {
         "name": "Sentinel",
         "url": "https://sentinel-foxxelabs.fly.dev",
         "mcp_path": "/mcp",
@@ -43,6 +50,13 @@ MCP_SERVERS = [
         "mcp_path": "/mcp",
         "platform": "fly.io",
         "description": "Fly.io management",
+    },
+    {
+        "name": "Eric",
+        "url": "https://mark-foxxelabs.fly.dev",
+        "mcp_path": "/mcp",
+        "platform": "fly.io",
+        "description": "M. Eric Ting — marketing intelligence agent",
     },
 ]
 

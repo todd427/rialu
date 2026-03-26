@@ -1,0 +1,71 @@
+{
+  "id": "elevenlabs-api-key",
+  "name": "ElevenLabs API Key",
+  "provider": "ElevenLabs",
+  "description": "Retrieves your ElevenLabs API key for access to text-to-speech, voice cloning, speech-to-speech, sound effects, and other audio AI features via the ElevenLabs API.",
+  "env_var": "ELEVENLABS_API_KEY",
+  "tags": ["ai", "tts", "audio", "voice", "elevenlabs"],
+  "prereqs": [
+    "An ElevenLabs account at elevenlabs.io.",
+    "A subscription plan that includes API access. The free tier provides limited API usage. Paid plans (Starter, Creator, Pro, Scale) offer higher quotas."
+  ],
+  "steps": [
+    {
+      "id": "open-elevenlabs",
+      "title": "Open ElevenLabs",
+      "instruction": "Navigate to the ElevenLabs website and log in to your account.",
+      "url": "https://elevenlabs.io"
+    },
+    {
+      "id": "open-profile-menu",
+      "title": "Open your profile menu",
+      "instruction": "Click on your profile icon or avatar in the bottom-left corner of the sidebar. This opens a menu with account options.",
+      "screenshot_hint": "Profile icon/avatar in the bottom-left of the left sidebar, showing your name or initials."
+    },
+    {
+      "id": "navigate-to-api-keys",
+      "title": "Navigate to API Keys",
+      "instruction": "From the profile menu, click 'Profile + API key' (or 'Profile Settings'). This takes you to your profile page where your API key is displayed.",
+      "screenshot_hint": "Menu item labelled 'Profile + API key' in the profile dropdown."
+    },
+    {
+      "id": "reveal-api-key",
+      "title": "Reveal the API key",
+      "instruction": "On the profile page, find the 'API Key' section. The key is hidden by default. Click the eye icon or 'Reveal' button to show the full key. It is a 32-character hexadecimal string.",
+      "screenshot_hint": "API Key section on the profile page with a hidden key field and an eye/reveal icon."
+    },
+    {
+      "id": "copy-api-key",
+      "title": "Copy the API key",
+      "instruction": "Click the copy icon next to the revealed key, or manually select and copy the entire string.",
+      "input_label": "ElevenLabs API Key",
+      "input_type": "secret",
+      "warning": "This is your account-level API key. Anyone with this key can use your character quota and access your custom voices. Do not share it or commit it to source control."
+    },
+    {
+      "id": "regenerate-if-compromised",
+      "title": "Regenerate the key if needed",
+      "instruction": "If your key has been compromised or you want to rotate it, click the 'Regenerate' or refresh icon next to the API key on the same profile page. This immediately invalidates the old key and generates a new one. Update all services that use the old key.",
+      "warning": "Regenerating the key instantly revokes the previous key. All applications using the old key will stop working until updated.",
+      "optional": true
+    },
+    {
+      "id": "check-quota",
+      "title": "Check your usage quota",
+      "instruction": "On the same profile page or under Subscription, review your character quota. The API and the web UI share the same monthly character allowance. Ensure you have enough quota for your planned API usage.",
+      "optional": true,
+      "screenshot_hint": "Character usage bar showing used/remaining quota for the current billing period."
+    },
+    {
+      "id": "test-key",
+      "title": "Test the key",
+      "instruction": "Verify the key works by running:\n\ncurl -H 'xi-api-key: <your-key>' https://api.elevenlabs.io/v1/user\n\nYou should see a JSON response with your user profile, subscription info, and character usage. A 401 response means the key is invalid or was not copied correctly.",
+      "optional": true
+    }
+  ],
+  "vault_entry": {
+    "name_template": "ElevenLabs API Key — {account_name}",
+    "provider": "ElevenLabs",
+    "notes": "Account-level key (one key per account, not per-project). Shared quota between web UI and API. Key is a 32-char hex string. Can be regenerated from the profile page but this revokes the old key."
+  }
+}

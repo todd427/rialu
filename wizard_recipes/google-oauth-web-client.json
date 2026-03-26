@@ -1,0 +1,79 @@
+{
+  "id": "google-oauth-web-client",
+  "name": "Google OAuth 2.0 Web Application Client",
+  "provider": "Google Cloud",
+  "description": "Creates an OAuth 2.0 Web Application client in your GCP project and captures the client_secret (and optionally client_id). Used for server-side OAuth flows such as Cloudflare Access Google login.",
+  "env_var": "GOOGLE_CLIENT_SECRET",
+  "tags": ["oauth", "google", "identity", "web"],
+  "prereqs": [
+    "A Google Cloud Platform project already exists",
+    "The OAuth consent screen has been configured (External or Internal) with at least one authorised domain"
+  ],
+  "steps": [
+    {
+      "id": 1,
+      "title": "Open the GCP Credentials page",
+      "instruction": "Sign in to the Google Cloud Console and navigate to APIs & Services > Credentials for your project.",
+      "url": "https://console.cloud.google.com/apis/credentials"
+    },
+    {
+      "id": 2,
+      "title": "Start creating a new OAuth client",
+      "instruction": "Click the '+ CREATE CREDENTIALS' button at the top of the page and select 'OAuth client ID' from the dropdown menu.",
+      "screenshot_hint": "Blue '+ CREATE CREDENTIALS' button near the top-left of the Credentials page"
+    },
+    {
+      "id": 3,
+      "title": "Choose application type",
+      "instruction": "In the 'Application type' dropdown, select 'Web application'.",
+      "screenshot_hint": "Dropdown labelled 'Application type' with options like Web application, Android, iOS, etc."
+    },
+    {
+      "id": 4,
+      "title": "Name the client",
+      "instruction": "Enter a descriptive name for this OAuth client, for example 'Cloudflare Access - rialu.ie'. This name is only visible to you in the console.",
+      "input_label": "Client name",
+      "input_type": "text"
+    },
+    {
+      "id": 5,
+      "title": "Add authorised redirect URIs",
+      "instruction": "Under 'Authorised redirect URIs', click '+ ADD URI' and enter the redirect URI required by your application. For Cloudflare Access this is typically: https://<your-team-name>.cloudflareaccess.com/cdn-cgi/access/callback. Add additional URIs if you need localhost callbacks for development.",
+      "warning": "Double-check the redirect URI exactly matches what the consuming service expects. A mismatch will cause 'redirect_uri_mismatch' errors at login time."
+    },
+    {
+      "id": 6,
+      "title": "Create the client",
+      "instruction": "Click the 'CREATE' button at the bottom of the form. A dialog will appear showing your new Client ID and Client Secret.",
+      "screenshot_hint": "Modal dialog titled 'OAuth client created' with two copyable fields"
+    },
+    {
+      "id": 7,
+      "title": "Copy the Client Secret",
+      "instruction": "Copy the 'Client Secret' value from the dialog. This is the primary secret you need to store. Click the copy icon next to it or select and copy the text.",
+      "input_label": "Client Secret",
+      "input_type": "secret",
+      "warning": "This is the only time Google shows the secret in the creation dialog. You can regenerate it later, but that will invalidate the old one."
+    },
+    {
+      "id": 8,
+      "title": "Optionally copy the Client ID",
+      "instruction": "Copy the 'Client ID' value as well. While not secret, you will need it alongside the client secret when configuring your OAuth integration.",
+      "input_label": "Client ID",
+      "input_type": "text",
+      "env_var_override": "GOOGLE_CLIENT_ID",
+      "optional": true
+    },
+    {
+      "id": 9,
+      "title": "Verify the client appears in the list",
+      "instruction": "Close the dialog and confirm the new OAuth 2.0 Client ID appears in the 'OAuth 2.0 Client IDs' table on the Credentials page. You can click on it at any time to view or edit redirect URIs.",
+      "url": "https://console.cloud.google.com/apis/credentials"
+    }
+  ],
+  "vault_entry": {
+    "name_template": "Google OAuth Web Client — {client_name}",
+    "provider": "google",
+    "notes": "OAuth 2.0 Web Application client_secret. Client ID stored separately if captured."
+  }
+}

@@ -503,6 +503,103 @@ def list_projects() -> list[dict]:
     return [row_to_dict(r) for r in rows]
 
 
+# ── Login tools ──────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def list_logins() -> list[dict]:
+    """
+    List all stored credentials — passwords masked.
+    Returns name, url, username, pwd_hint, notes.
+    """
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id, name, url, username, pwd_hint, notes, created_at, updated_at "
+            "FROM credential_store ORDER BY name"
+        ).fetchall()
+    return [row_to_dict(r) for r in rows]
+
+
+@mcp.tool()
+def reveal_login(name: str) -> dict:
+    """
+    Decrypt and return the password for a login by name. Audited.
+
+    Args:
+        name: Exact login name (case-sensitive), e.g. 'Anthropic Console'
+    """
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id, name, url, username, encrypted_pwd, totp_secret, notes FROM credential_store WHERE name = ?",
+            (name,),
+        ).fetchone()
+        if not row:
+            return {"error": f"Login '{name}' not found"}
+        try:
+            password = decrypt_key(row["encrypted_pwd"])
+        except ValueError as e:
+            return {"error": f"Decryption failed: {e}"}
+        totp = None
+        if row["totp_secret"]:
+            try:
+                totp = decrypt_key(row["totp_secret"])
+            except ValueError:
+                pass
+        conn.execute(
+            "INSERT INTO credential_audit_log (credential_id, action, detail) VALUES (?, 'revealed', 'via MCP')",
+            (row["id"],),
+        )
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "url": row["url"],
+        "username": row["username"],
+        "password": password,
+        "totp_secret": totp,
+    }
+
+
+@mcp.tool()
+def store_login(
+    name: str,
+    password: str,
+    username: Optional[str] = "",
+    url: Optional[str] = None,
+    totp_secret: Optional[str] = None,
+    notes: Optional[str] = None,
+) -> dict:
+    """
+    Store a new login credential in the vault.
+
+    Args:
+        name:        Display name, e.g. 'Railway Dashboard', 'Google Cloud Console'
+        username:    Email or username
+        password:    Password to encrypt and store
+        url:         Login page URL (optional)
+        totp_secret: TOTP/2FA secret for backup (optional, encrypted)
+        notes:       Optional notes
+    """
+    encrypted = encrypt_key(password)
+    hint = key_hint(password)
+    enc_totp = encrypt_key(totp_secret) if totp_secret else None
+    with db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM credential_store WHERE name = ?", (name,)
+        ).fetchone()
+        if existing:
+            return {"error": f"Login '{name}' already exists"}
+        cur = conn.execute(
+            "INSERT INTO credential_store (name, url, username, encrypted_pwd, pwd_hint, totp_secret, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (name, url, username, encrypted, hint, enc_totp, notes),
+        )
+        cid = cur.lastrowid
+        conn.execute(
+            "INSERT INTO credential_audit_log (credential_id, action, detail) VALUES (?, 'created', 'via MCP')",
+            (cid,),
+        )
+    return {"id": cid, "name": name, "username": username, "pwd_hint": hint}
+
+
 # ── ASGI app ─────────────────────────────────────────────────────────────────
 
 def get_asgi_app():

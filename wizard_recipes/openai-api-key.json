@@ -1,0 +1,70 @@
+{
+  "id": "openai-api-key",
+  "name": "OpenAI API Key",
+  "provider": "OpenAI",
+  "description": "Creates an API key for the OpenAI platform, granting access to GPT, DALL-E, Whisper, Embeddings, and other OpenAI models via the API. Keys can be scoped to specific projects for isolation and billing attribution.",
+  "env_var": "OPENAI_API_KEY",
+  "tags": ["ai", "llm", "openai", "gpt", "api"],
+  "prereqs": [
+    "An OpenAI account at platform.openai.com.",
+    "A payment method on file or active credits. API access requires a funded account separate from any ChatGPT subscription.",
+    "If using project-scoped keys: at least one project created in the OpenAI dashboard."
+  ],
+  "steps": [
+    {
+      "id": "open-api-keys-page",
+      "title": "Open the API Keys page",
+      "instruction": "Navigate to the OpenAI platform API keys page. Log in if prompted.",
+      "url": "https://platform.openai.com/api-keys"
+    },
+    {
+      "id": "select-project",
+      "title": "Select the project (optional but recommended)",
+      "instruction": "At the top of the dashboard, check which project/organisation is selected. If you want the key scoped to a specific project, use the project switcher in the top-left to select it before creating the key. Project-scoped keys can only access resources within that project and make billing attribution easier.",
+      "optional": true,
+      "screenshot_hint": "Project selector dropdown in the top-left of the OpenAI dashboard header."
+    },
+    {
+      "id": "create-new-key",
+      "title": "Create a new secret key",
+      "instruction": "Click the '+ Create new secret key' button.",
+      "screenshot_hint": "Green '+ Create new secret key' button on the API keys page."
+    },
+    {
+      "id": "configure-key",
+      "title": "Configure the key",
+      "instruction": "In the creation dialog, fill in:\n\n1. Name: A descriptive name like 'rialu-prod' or 'faire-backend'.\n2. Project: Confirm the project scope (or 'Default project' for account-wide access).\n3. Permissions: Choose 'All' for full access, or 'Restricted' to limit to specific endpoints (e.g. only Chat Completions, only Embeddings). Restricted keys are safer for single-purpose services.\n\nClick 'Create secret key'.",
+      "input_label": "Key Name",
+      "input_type": "text",
+      "screenshot_hint": "Modal dialog with Name field, Project dropdown, and Permissions radio buttons."
+    },
+    {
+      "id": "copy-key",
+      "title": "Copy the API key",
+      "instruction": "The key is displayed in a modal. It starts with 'sk-'. Click the copy icon or manually select and copy the entire key string.",
+      "input_label": "OpenAI API Key",
+      "input_type": "secret",
+      "warning": "The key is shown only once. If you close this dialog without copying, you must create a new key. The old one cannot be revealed again.",
+      "screenshot_hint": "Modal showing the key value starting with 'sk-' and a copy button."
+    },
+    {
+      "id": "set-usage-limits",
+      "title": "Set usage limits",
+      "instruction": "Navigate to Settings > Limits (or Billing > Limits) and configure:\n\n1. Monthly budget: Set a hard cap or notification threshold to avoid surprise bills.\n2. Per-key rate limits: If available, set rate limits on the new key to prevent runaway usage.\n\nThis is especially important for keys used by automated systems.",
+      "url": "https://platform.openai.com/settings/organization/limits",
+      "optional": true,
+      "screenshot_hint": "Limits page showing monthly budget input and usage notification threshold."
+    },
+    {
+      "id": "test-key",
+      "title": "Test the key",
+      "instruction": "Verify the key works by running:\n\ncurl https://api.openai.com/v1/models \\\n  -H 'Authorization: Bearer <your-key>'\n\nYou should see a JSON list of available models. If you get a 401, the key was not copied correctly. If you get a 429, check your billing/credits.",
+      "optional": true
+    }
+  ],
+  "vault_entry": {
+    "name_template": "OpenAI API Key — {key_name}",
+    "provider": "OpenAI",
+    "notes": "Keys start with sk-. Record which project it is scoped to and what permissions (All or Restricted) were granted. Check expiry policy — OpenAI may enforce key rotation."
+  }
+}

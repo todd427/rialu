@@ -1,0 +1,67 @@
+{
+  "id": "github-pat",
+  "name": "GitHub Personal Access Token",
+  "provider": "GitHub",
+  "description": "Creates a GitHub Personal Access Token (PAT) for API access. Covers both classic tokens (broad scope-based permissions) and fine-grained tokens (repository-level permissions with expiry). Fine-grained tokens are recommended for new integrations.",
+  "env_var": "GITHUB_PAT",
+  "tags": ["git", "github", "api", "scm", "ci-cd"],
+  "prereqs": [
+    "A GitHub account.",
+    "For fine-grained tokens: the target repositories must be owned by you or by an organisation that has opted in to fine-grained PATs."
+  ],
+  "steps": [
+    {
+      "id": "open-token-settings",
+      "title": "Open GitHub token settings",
+      "instruction": "Navigate to your GitHub Personal Access Tokens settings page. You will see two tabs: 'Fine-grained tokens' and 'Tokens (classic)'.",
+      "url": "https://github.com/settings/tokens"
+    },
+    {
+      "id": "choose-token-type",
+      "title": "Choose between Fine-grained and Classic",
+      "instruction": "Decide which token type to create:\n\n- Fine-grained (recommended): Scoped to specific repositories, mandatory expiry (max 1 year), granular permissions. Best for single-purpose integrations.\n- Classic: Broad scope-based permissions, optional expiry, works with all GitHub features including older APIs. Required for some features like SSO-enabled organisations or certain webhook operations.\n\nFor most use cases (repo access, CI/CD, API queries), choose fine-grained."
+    },
+    {
+      "id": "create-fine-grained",
+      "title": "Create a Fine-grained token (if chosen)",
+      "instruction": "Click 'Generate new token' under the 'Fine-grained tokens' tab. Fill in:\n\n1. Token name: A descriptive name like 'rialu-poller' or 'ci-deploy'.\n2. Expiration: Choose an expiry period (30, 60, 90 days, or custom up to 1 year).\n3. Description: Optional but helpful for future reference.\n4. Resource owner: Select your personal account or the relevant organisation.\n5. Repository access: Choose 'Only select repositories' and pick the repos this token needs, or 'All repositories' if appropriate.\n6. Permissions: Expand 'Repository permissions' and enable what you need. Common selections:\n   - Contents: Read-only (for cloning and reading files)\n   - Metadata: Read-only (always required, auto-selected)\n   - Pull requests: Read and write (if creating PRs)\n   - Commit statuses: Read and write (for CI status checks)\n   - Actions: Read-only (for checking workflow runs)\n\nClick 'Generate token'.",
+      "url": "https://github.com/settings/personal-access-tokens/new",
+      "screenshot_hint": "Form with Token name, Expiration, Resource owner, Repository access, and Permissions sections."
+    },
+    {
+      "id": "create-classic",
+      "title": "Create a Classic token (if chosen)",
+      "instruction": "Click 'Generate new token' under the 'Tokens (classic)' tab, or navigate directly to the URL below. Fill in:\n\n1. Note: A descriptive name like 'rialu-github-poller'.\n2. Expiration: Choose an expiry or 'No expiration' (not recommended).\n3. Scopes: Check the scopes you need. Common selections:\n   - repo (full control of private repos — includes repo:status, repo_deployment, public_repo, repo:invite, security_events)\n   - read:org (if you need to list org repos)\n   - workflow (if triggering GitHub Actions)\n   - read:user and user:email (for user profile info)\n\nClick 'Generate token'.",
+      "url": "https://github.com/settings/tokens/new",
+      "screenshot_hint": "Form with Note field, Expiration dropdown, and a long list of scope checkboxes.",
+      "warning": "Classic tokens with broad scopes (especially 'repo') grant access to ALL your repositories. Prefer fine-grained tokens when possible."
+    },
+    {
+      "id": "copy-token",
+      "title": "Copy the token value",
+      "instruction": "After generation, GitHub displays the token value at the top of the page with a green background. Copy it immediately.\n\n- Fine-grained tokens start with 'github_pat_'\n- Classic tokens start with 'ghp_'",
+      "input_label": "GitHub Personal Access Token",
+      "input_type": "secret",
+      "warning": "The token is displayed only once. If you navigate away without copying it, you must delete the token and create a new one.",
+      "screenshot_hint": "Green banner at the top of the page showing the token string with a copy icon."
+    },
+    {
+      "id": "authorise-sso",
+      "title": "Authorise for SSO (if applicable)",
+      "instruction": "If your organisation uses SAML SSO, you must authorise the token for that organisation. On the tokens list page, click 'Configure SSO' next to your new token and authorise it for the relevant organisation(s).",
+      "optional": true,
+      "screenshot_hint": "'Configure SSO' button next to the token in the token list."
+    },
+    {
+      "id": "test-token",
+      "title": "Test the token",
+      "instruction": "Verify the token works by running:\n\ncurl -H 'Authorization: Bearer <your-token>' https://api.github.com/user\n\nYou should see your GitHub profile JSON. If you scoped to specific repos, also test:\n\ncurl -H 'Authorization: Bearer <your-token>' https://api.github.com/repos/<owner>/<repo>",
+      "optional": true
+    }
+  ],
+  "vault_entry": {
+    "name_template": "GitHub PAT — {token_name}",
+    "provider": "GitHub",
+    "notes": "Fine-grained tokens start with github_pat_, classic tokens start with ghp_. Record the expiry date and which repos/scopes are granted."
+  }
+}

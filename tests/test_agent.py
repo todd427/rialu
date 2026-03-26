@@ -208,11 +208,9 @@ def test_agent_result_action_not_found():
 # ── POST /api/agent/action (stub) ───────────────────────────────────────────
 
 def test_agent_action_queued():
-    resp = client.post("/api/agent/action", json={
-        "machine": "daisy",
-        "action_type": "git_pull",
-        "payload": '{"repo":"mnemos"}',
-    })
+    body = json.dumps({"machine": "daisy", "action_type": "git_pull", "payload": '{"repo":"mnemos"}'}).encode()
+    resp = client.post("/api/agent/action", content=body,
+                       headers={"Content-Type": "application/json", "X-Rialu-Sig": _sign(body)})
     assert resp.status_code == 201
     data = resp.json()
     assert data["status"] == "queued"
