@@ -215,9 +215,10 @@ class CCSession:
         cmd = ["claude", "--output-format", "stream-json", "--verbose"]
         if os.path.exists(mcp_config):
             cmd.extend(["--mcp-config", mcp_config])
-        # Dream sessions get full permissions for MCP tool access
+        # Dream sessions: full MCP access, no Bash (use MCP tools instead)
         if self.agent_id == "dreaming":
             cmd.append("--dangerously-skip-permissions")
+            cmd.extend(["--disallowedTools", "Bash"])
         cmd.extend(["-p", prompt])
         print(f"[cc_wrapper] spawning: {' '.join(cmd)}", file=sys.stderr)
         print(f"[cc_wrapper] cwd: {cwd}", file=sys.stderr)
