@@ -25,7 +25,7 @@ from starlette.routing import Mount
 
 from db import init_db
 from poller import setup_scheduler
-from routers import projects, worklog, deployments, budget, machines, keys, mcp_status, usage, sentinel, milestone_review, mnemos, github, export, decisions, agents
+from routers import projects, worklog, deployments, budget, machines, keys, logins, mcp_status, usage, sentinel, milestone_review, mnemos, github, export, wizard, decisions, agents
 from ws_hub import hub
 from faire_hub import faire_hub
 import mcp_server as _mcp
@@ -75,6 +75,10 @@ class CanonicalHostMiddleware(BaseHTTPMiddleware):
         if path == "/api/health":
             return await call_next(request)
 
+        # WebSocket — token-authenticated at application layer (faire_hub validates FAIRE_WS_TOKEN)
+        if path.startswith("/ws/"):
+            return await call_next(request)
+
         # MCP + OAuth endpoints — self-authenticating via OAuth 2.1
         if path.startswith("/mcp") or path.startswith("/.well-known") or path in ("/authorize", "/token", "/register", "/revoke"):
             return await call_next(request)
@@ -110,7 +114,9 @@ app.include_router(sentinel.router)
 app.include_router(milestone_review.router)
 app.include_router(mnemos.router)
 app.include_router(github.router)
+app.include_router(logins.router)
 app.include_router(export.router)
+app.include_router(wizard.router)
 app.include_router(decisions.router)
 app.include_router(agents.router)
 
@@ -168,12 +174,7 @@ async def test_broadcast():
     return {"clients": clients, "sent": True}
 
 
-# ── MCP — mount at root; streamable_http_app() registers /mcp internally ─────
-# OAuth endpoints (/.well-known, /authorize, /token, /register) also at root.
-
-app.router.routes.append(Mount("/", app=_mcp.get_asgi_app()))
-
-# ── SPA catch-all (must be AFTER MCP mount) ──────────────────────────────────
+# ── SPA ──────────────────────────────────────────────────────────────────────
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 _INDEX_HTML = os.path.join(STATIC_DIR, "index.html") if os.path.isdir(STATIC_DIR) else None
@@ -184,6 +185,10 @@ if _INDEX_HTML:
     @app.get("/", response_class=FileResponse)
     def index():
         return FileResponse(_INDEX_HTML)
+
+# ── MCP — mount LAST at root; catches /.well-known, /authorize, /token, /mcp ─
+
+app.router.routes.append(Mount("/", app=_mcp.get_asgi_app()))
 
 
 if __name__ == "__main__":
