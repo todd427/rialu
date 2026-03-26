@@ -31,7 +31,7 @@ class CCSession:
         self,
         agent_id: str = "daisy",
         project_id: int = 1,
-        rialu_base: str = "https://rialu.fly.dev",
+        rialu_base: str = "https://rialu.ie",
         agent_key: str = "",
         require_approval_for: list[str] | None = None,
         auto_approve_rules: list[dict] | None = None,
@@ -65,6 +65,13 @@ class CCSession:
             "payload": payload,
         }).encode()
         headers = {"Content-Type": "application/json", **self._sign(body)}
+
+        # Add CF Access headers if configured
+        cf_id = os.environ.get("CF_ACCESS_CLIENT_ID", "")
+        cf_secret = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
+        if cf_id and cf_secret:
+            headers["CF-Access-Client-Id"] = cf_id
+            headers["CF-Access-Client-Secret"] = cf_secret
 
         try:
             async with httpx.AsyncClient(timeout=10) as client:
