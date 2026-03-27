@@ -18,6 +18,7 @@ Tools:
   update_key      — rotate a key value by name
   generate_key    — get-or-create a crypto-random key
   list_projects   — all projects with status
+  update_project  — patch status, platform, site_url, or any other project field by id
 """
 
 import json
@@ -501,6 +502,55 @@ def list_projects() -> list[dict]:
             "FROM projects ORDER BY updated_at DESC"
         ).fetchall()
     return [row_to_dict(r) for r in rows]
+
+
+@mcp.tool()
+def update_project(
+    project_id: int,
+    status: Optional[str] = None,
+    platform: Optional[str] = None,
+    site_url: Optional[str] = None,
+    phase: Optional[str] = None,
+    machine: Optional[str] = None,
+    notes: Optional[str] = None,
+    repo_url: Optional[str] = None,
+    name: Optional[str] = None,
+) -> dict:
+    """
+    Update one or more fields on a project. All fields are optional — only
+    supplied fields are changed. Returns the updated project record.
+
+    Args:
+        project_id: Project id (from list_projects)
+        status:     e.g. 'development', 'deployed', 'paused', 'archived', 'running'
+        platform:   e.g. 'fly.io', 'railway', 'cf-pages', 'tauri'
+        site_url:   Live URL for the project
+        phase:      Current phase string
+        machine:    Primary machine, e.g. 'daisy', 'rose', 'iris'
+        notes:      Free-text notes
+        repo_url:   GitHub URL
+        name:       Rename the project
+    """
+    fields = {k: v for k, v in {
+        "name": name, "phase": phase, "status": status, "notes": notes,
+        "repo_url": repo_url, "site_url": site_url, "machine": machine,
+        "platform": platform,
+    }.items() if v is not None}
+    if not fields:
+        return {"error": "No fields supplied"}
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    set_clause += ", updated_at = datetime('now')"
+    values = list(fields.values()) + [project_id]
+    with db() as conn:
+        conn.execute(
+            f"UPDATE projects SET {set_clause} WHERE id = ?", values
+        )
+        row = conn.execute(
+            "SELECT * FROM projects WHERE id = ?", (project_id,)
+        ).fetchone()
+    if not row:
+        return {"error": f"Project {project_id} not found"}
+    return row_to_dict(row)
 
 
 # ── Login tools ──────────────────────────────────────────────────────────────
