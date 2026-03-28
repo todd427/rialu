@@ -10,7 +10,7 @@ Rialú (Irish: "control") is a personal DevOps command centre — a single-user 
 
 ## Key Vault
 
-All API keys are stored in the Rialú key vault (AES-256-GCM encrypted with Shamir secret sharing for recovery). **Always check the vault first** before reading `/home/Projects/Keys/`. See `/home/Projects/CLAUDE.md` for vault access commands.
+The vault has been extracted to **Taisce** (`taisce.irish`) — a standalone encrypted vault app. Rialú still has its own vault code (`key_vault.py`, `keys.py`) and MCP vault tools for backwards compatibility, but Taisce is now the primary vault. See `/home/Projects/taisce/CLAUDE.md` for details.
 
 ## Commands
 
