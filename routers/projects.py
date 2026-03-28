@@ -87,7 +87,24 @@ def list_projects():
         rows = conn.execute(
             "SELECT * FROM projects ORDER BY updated_at DESC"
         ).fetchall()
-    return [row_to_dict(r) for r in rows]
+        # commits_7d: true commit count per project (last 7 days)
+        wl_rows = conn.execute(
+            """
+            SELECT project_id, notes
+            FROM worklog
+            WHERE date >= date('now', '-6 days')
+              AND notes LIKE '[auto-git]%'
+            """
+        ).fetchall()
+    commits_by_project: dict[int, int] = {}
+    for wl in wl_rows:
+        body = wl["notes"].replace("[auto-git] ", "", 1)
+        count = len(body.split(" | ")) if body else 0
+        commits_by_project[wl["project_id"]] = commits_by_project.get(wl["project_id"], 0) + count
+    projects = [row_to_dict(r) for r in rows]
+    for p in projects:
+        p["commits_7d"] = commits_by_project.get(p["id"], 0)
+    return projects
 
 
 @router.post("", status_code=201)

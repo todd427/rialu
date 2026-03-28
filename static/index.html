@@ -169,8 +169,23 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
 .term-tab-close:hover{color:var(--err)}
 .term-body{flex:1;padding:4px;overflow:hidden}
 .term-body .xterm{height:100%}
-@media(max-width:600px){.detail-grid{grid-template-columns:1fr}.kboard{grid-template-columns:1fr 1fr}.m-grid{grid-template-columns:1fr}}
+.pcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+.pcard{background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;padding:14px;cursor:pointer;transition:border-color .15s}
+.pcard:hover{border-color:var(--acc)}
+.pcard-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.pcard-name{font-size:13px;font-weight:600;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pcard-meta{font-size:10px;color:var(--t3);display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:6px}
+.pcard-links{display:flex;gap:6px;margin-top:8px;font-size:10px}
+.pcard-links a{color:var(--acc);text-decoration:none}
+.pcard-links a:hover{text-decoration:underline}
+.commit-chart-wrap{background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;padding:12px;margin:10px 0}
+.commit-chart-wrap canvas{max-height:160px}
+.commit-chart-controls{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.commit-chart-controls .vtog{font-size:10px}
+.commit-chart-controls .vbtn{padding:3px 8px;font-size:10px}
+@media(max-width:600px){.detail-grid{grid-template-columns:1fr}.kboard{grid-template-columns:1fr 1fr}.m-grid{grid-template-columns:1fr}.pcards{grid-template-columns:1fr}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <div id="app" data-theme="dark">
@@ -207,7 +222,8 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
   <div class="row">
     <div style="display:flex;align-items:center;gap:9px">
       <div class="vtog">
-        <div class="vbtn on" id="v-list">List</div>
+        <div class="vbtn" id="v-cards">Cards</div>
+        <div class="vbtn" id="v-list">List</div>
         <div class="vbtn" id="v-kanban">Kanban</div>
         <div class="vbtn" id="v-timeline">Timeline</div>
       </div>
@@ -260,7 +276,9 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
     </div>
   </div>
 
-  <div id="pv-list"><div class="loading">Loading projects…</div></div>
+  <div id="pv-cards"><div class="loading">Loading projects…</div></div>
+
+  <div id="pv-list" style="display:none"><div class="loading">Loading projects…</div></div>
 
   <div id="pv-kanban" style="display:none">
     <div class="kboard" id="kanban-board"></div>
@@ -354,6 +372,18 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
     <div class="mcard"><div class="mclabel">Top project</div><div class="mcval" id="s-top" style="font-size:14px">—</div><div class="mcsub" id="s-top-min"></div></div>
     <div class="mcard"><div class="mclabel">Lines changed</div><div class="mcval" id="s-loc">—</div><div class="mcsub" id="s-loc-detail">this week</div></div>
     <div class="mcard"><div class="mclabel">Streak</div><div class="mcval" id="s-streak">—</div><div class="mcsub">days</div></div>
+  </div>
+  <div class="commit-chart-wrap" id="global-chart-wrap" style="display:none">
+    <div class="commit-chart-controls">
+      <span class="dlabel" style="color:var(--acc3);font-size:11px">Build Activity</span>
+      <div class="vtog" id="global-chart-range">
+        <div class="vbtn" data-d="30">30d</div>
+        <div class="vbtn on" data-d="90">90d</div>
+        <div class="vbtn" data-d="365">1y</div>
+      </div>
+      <a class="btn" style="font-size:10px;padding:3px 8px;margin-left:auto" id="global-chart-csv">↓ CSV</a>
+    </div>
+    <canvas id="global-chart" height="120"></canvas>
   </div>
   <div style="background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;overflow:hidden">
     <table class="wltbl">
@@ -739,14 +769,26 @@ document.querySelectorAll('.ntab').forEach(tab => {
 
 // ── project views ──────────────────────────────────────────────────────────
 let allProjects = [];
-['list','kanban','timeline'].forEach(v => {
-  document.getElementById('v-'+v).addEventListener('click', function(){
-    ['list','kanban','timeline'].forEach(vv => {
+const PROJECT_VIEWS = ['cards','list','kanban','timeline'];
+const savedLayout = localStorage.getItem('rialu_projects_layout') || 'cards';
+PROJECT_VIEWS.forEach(v => {
+  const btn = document.getElementById('v-'+v);
+  if (v === savedLayout) {
+    btn.classList.add('on');
+    document.getElementById('pv-'+v).style.display = 'block';
+  } else {
+    btn.classList.remove('on');
+    document.getElementById('pv-'+v).style.display = 'none';
+  }
+  btn.addEventListener('click', function(){
+    PROJECT_VIEWS.forEach(vv => {
       document.getElementById('v-'+vv).classList.remove('on');
       document.getElementById('pv-'+vv).style.display = 'none';
     });
     this.classList.add('on');
     document.getElementById('pv-'+v).style.display = 'block';
+    localStorage.setItem('rialu_projects_layout', v);
+    if (v === 'cards') renderProjectCards(allProjects);
     if (v === 'kanban') renderKanban(allProjects);
     if (v === 'timeline') renderTimeline(allProjects);
   });
@@ -780,6 +822,7 @@ async function loadProjects(){
     allProjects = projects;
     document.getElementById('project-count').textContent = projects.length + ' projects';
     renderProjectList(projects);
+    renderProjectCards(projects);
     populateProjectDropdown(projects);
   } catch(e){
     document.getElementById('pv-list').innerHTML = '<div class="empty">Could not load projects.</div>';
@@ -807,6 +850,43 @@ function renderProjectList(projects){
     </div>`).join('');
 }
 
+function renderProjectCards(projects){
+  const el = document.getElementById('pv-cards');
+  if (!projects.length){ el.innerHTML = '<div class="empty">No projects yet. Add one above.</div>'; return; }
+  el.innerHTML = '<div class="pcards">' + projects.map(p => `
+    <div class="pcard" onclick="openProjectFromCard(${p.id})">
+      <div class="pcard-head">
+        <div class="pmarker" style="background:${STATUS_COLOR[p.status]||'var(--t3)'}"></div>
+        <span class="pcard-name">${esc(p.name)}</span>
+        ${statusPill(p.status)}
+      </div>
+      <div class="pcard-meta">
+        ${p.phase ? `<span>${esc(p.phase)}</span>` : ''}
+        ${p.platform ? `<span>${esc(p.platform)}</span>` : ''}
+        ${p.machine ? `<span>${esc(p.machine)}</span>` : ''}
+        <span>${timeSince(p.updated_at)}</span>
+      </div>
+      ${p.commits_7d ? `<div style="margin-top:6px;font-size:10px;color:var(--acc)">${p.commits_7d} commit${p.commits_7d===1?'':'s'} this week</div>` : ''}
+      ${(p.repo_url || p.site_url) ? `<div class="pcard-links">
+        ${p.repo_url ? `<a href="${esc(p.repo_url)}" target="_blank" onclick="event.stopPropagation()">repo</a>` : ''}
+        ${p.site_url ? `<a href="${esc(p.site_url)}" target="_blank" onclick="event.stopPropagation()">${esc(p.site_url.replace('https://',''))}</a>` : ''}
+      </div>` : ''}
+    </div>`).join('') + '</div>';
+}
+
+function openProjectFromCard(id){
+  // Switch to list view and open the project detail
+  PROJECT_VIEWS.forEach(vv => {
+    document.getElementById('v-'+vv).classList.remove('on');
+    document.getElementById('pv-'+vv).style.display = 'none';
+  });
+  document.getElementById('v-list').classList.add('on');
+  document.getElementById('pv-list').style.display = 'block';
+  toggleProject(id);
+  const row = document.getElementById('pr-'+id);
+  if (row) row.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
 async function toggleProject(id){
   const row = document.getElementById('pr-'+id);
   const detail = document.getElementById('pd-'+id);
@@ -821,9 +901,10 @@ async function loadProjectDetail(id){
   const detail = document.getElementById('pd-'+id);
   const p = allProjects.find(x => x.id === id);
   if (!p) return;
-  const [milestones, dash] = await Promise.all([
+  const [milestones, dash, commits] = await Promise.all([
     fetch(`/api/projects/${id}/milestones`).then(r => r.json()),
     fetch(`/api/projects/${id}/dashboard`).then(r => r.json()).catch(() => null),
+    fetch(`/api/projects/${id}/commits?days=90`).then(r => r.json()).catch(() => null),
   ]);
   const locW = dash?.loc_week || {added:0,removed:0};
   const locT = dash?.loc_total || {added:0,removed:0};
@@ -840,6 +921,19 @@ async function loadProjectDetail(id){
       <div class="mcard"><div class="mclabel">Time (week)</div><div class="mcval">${dash?.minutes_week || 0}<span style="font-size:10px;color:var(--t3)"> min</span></div></div>
       <div class="mcard"><div class="mclabel">Deploy</div><div class="mcval" style="font-size:12px">${dep ? depPill : '<span style="color:var(--t3)">—</span>'}</div>${dep?.last_deploy_at ? `<div class="mcsub">${timeSince(dep.last_deploy_at)}</div>` : ''}</div>
     </div>
+    ${commits?.series?.length ? `
+    <div class="commit-chart-wrap">
+      <div class="commit-chart-controls">
+        <span class="dlabel" style="color:var(--acc3);font-size:11px">Commit Activity</span>
+        <div class="vtog" id="pchart-range-${id}">
+          <div class="vbtn" data-d="30">30d</div>
+          <div class="vbtn on" data-d="90">90d</div>
+          <div class="vbtn" data-d="365">1y</div>
+        </div>
+        <a class="btn" style="font-size:10px;padding:3px 8px;margin-left:auto" href="/api/projects/${id}/commits?format=csv" download>↓ CSV</a>
+      </div>
+      <canvas id="pchart-${id}" height="90"></canvas>
+    </div>` : ''}
     <div class="detail-grid">
       <div>
         <div class="dlabel">Description</div>
@@ -906,6 +1000,25 @@ async function loadProjectDetail(id){
       <button class="btn" onclick="addMilestonePrompt(${id})">Add milestone</button>
       <button class="btn" onclick="document.getElementById('edit-form-${id}').style.display='block'">Edit project</button>
     </div>`;
+  // Render per-project commit chart
+  if (commits?.series?.length) {
+    renderCommitChart(`pchart-${id}`, commits.series);
+    // Wire up range toggles
+    document.querySelectorAll(`#pchart-range-${id} .vbtn`).forEach(btn => {
+      btn.addEventListener('click', async function(){
+        document.querySelectorAll(`#pchart-range-${id} .vbtn`).forEach(b => b.classList.remove('on'));
+        this.classList.add('on');
+        const days = this.dataset.d;
+        const data = await fetch(`/api/projects/${id}/commits?days=${days}`).then(r => r.json());
+        const c = document.getElementById(`pchart-${id}`);
+        c.style.display = 'none'; c.offsetHeight; c.style.display = '';
+        renderCommitChart(`pchart-${id}`, data.series || []);
+        // Update CSV link
+        const csvLink = this.closest('.commit-chart-wrap').querySelector('a');
+        if (csvLink) csvLink.href = `/api/projects/${id}/commits?format=csv&days=${days}`;
+      });
+    });
+  }
 }
 
 async function submitEditProject(id){
@@ -1210,6 +1323,135 @@ async function createGithubRepo(){
   } catch(e) { alert('Error: ' + e.message); }
 }
 
+// ── commit charts ─────────────────────────────────────────────────────────
+const _chartInstances = {};
+
+function _getThemeColor(varName){
+  return getComputedStyle(document.getElementById('app')).getPropertyValue(varName).trim();
+}
+
+function renderCommitChart(canvasId, series){
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  if (_chartInstances[canvasId]) { _chartInstances[canvasId].destroy(); }
+  const ctx = canvas.getContext('2d');
+  const labels = series.map(d => d.date);
+  const commits = series.map(d => d.commits);
+  const loc = series.map(d => (d.lines_added||0) + (d.lines_removed||0));
+  _chartInstances[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Commits', data: commits, backgroundColor: _getThemeColor('--acc'), borderRadius: 2, barPercentage: 0.85, yAxisID: 'y', order: 2 },
+        { label: 'LOC changed', data: loc, type: 'line', borderColor: _getThemeColor('--ok'), backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, tension: 0.3, yAxisID: 'y1', order: 1 },
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: true, labels: { color: _getThemeColor('--t2'), font: { size: 10 }, boxWidth: 10, padding: 8 } } },
+      scales: {
+        x: { display: true, grid: { display: false }, ticks: { color: _getThemeColor('--t3'), font: { size: 9 }, maxTicksLimit: 12, maxRotation: 0 }},
+        y: { display: true, position: 'left', title: { display: true, text: 'Commits', color: _getThemeColor('--t3'), font: { size: 10 } }, grid: { color: _getThemeColor('--bd') }, ticks: { color: _getThemeColor('--t3'), font: { size: 9 }, stepSize: 1, precision: 0 }, suggestedMax: 5, beginAtZero: true },
+        y1: { display: true, position: 'right', title: { display: true, text: 'LOC', color: _getThemeColor('--ok'), font: { size: 10 } }, grid: { drawOnChartArea: false }, ticks: { color: _getThemeColor('--ok'), font: { size: 9 }, precision: 0 }, beginAtZero: true },
+      }
+    }
+  });
+}
+
+function renderStackedCommitChart(canvasId, series){
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  if (_chartInstances[canvasId]) { _chartInstances[canvasId].destroy(); }
+  const ctx = canvas.getContext('2d');
+  const labels = series.map(d => d.date);
+  // Collect all projects, pick top 5 by total commits
+  const projectTotals = {};
+  series.forEach(d => (d.by_project||[]).forEach(p => {
+    projectTotals[p.name] = (projectTotals[p.name]||0) + p.commits;
+  }));
+  const sorted = Object.entries(projectTotals).sort((a,b) => b[1]-a[1]);
+  const top5 = sorted.slice(0,5).map(e => e[0]);
+  const hasOther = sorted.length > 5;
+  const palette = [_getThemeColor('--acc'), _getThemeColor('--ok'), _getThemeColor('--pur'), _getThemeColor('--warn'), _getThemeColor('--err')];
+  const datasets = top5.map((name, i) => ({
+    label: name,
+    data: series.map(d => {
+      const p = (d.by_project||[]).find(pp => pp.name === name);
+      return p ? p.commits : 0;
+    }),
+    backgroundColor: palette[i % palette.length],
+    borderRadius: 2,
+    barPercentage: 0.85,
+  }));
+  if (hasOther) {
+    datasets.push({
+      label: 'Other',
+      data: series.map(d => {
+        let total = 0;
+        (d.by_project||[]).forEach(p => { if (!top5.includes(p.name)) total += p.commits; });
+        return total;
+      }),
+      backgroundColor: _getThemeColor('--t3'),
+      borderRadius: 2,
+      barPercentage: 0.85,
+    });
+  }
+  // Add LOC line on secondary axis
+  const loc = series.map(d => (d.lines_added||0) + (d.lines_removed||0));
+  datasets.push({
+    label: 'LOC changed', data: loc, type: 'line', borderColor: _getThemeColor('--ok'),
+    backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, tension: 0.3,
+    yAxisID: 'y1', order: 0, stack: false,
+  });
+  _chartInstances[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: true, labels: { color: _getThemeColor('--t2'), font: { size: 10 }, boxWidth: 10, padding: 8 }}},
+      scales: {
+        x: { stacked: true, display: true, grid: { display: false }, ticks: { color: _getThemeColor('--t3'), font: { size: 9 }, maxTicksLimit: 12, maxRotation: 0 }},
+        y: { stacked: true, display: true, position: 'left', title: { display: true, text: 'Commits', color: _getThemeColor('--t3'), font: { size: 10 } }, grid: { color: _getThemeColor('--bd') }, ticks: { color: _getThemeColor('--t3'), font: { size: 9 }, stepSize: 1, precision: 0 }, suggestedMax: 5, beginAtZero: true },
+        y1: { display: true, position: 'right', title: { display: true, text: 'LOC', color: _getThemeColor('--ok'), font: { size: 10 } }, grid: { drawOnChartArea: false }, ticks: { color: _getThemeColor('--ok'), font: { size: 9 }, precision: 0 }, beginAtZero: true },
+      }
+    }
+  });
+}
+
+let _globalChartDays = 90;
+async function loadGlobalCommitChart(days){
+  if (days != null) _globalChartDays = days;
+  const wrap = document.getElementById('global-chart-wrap');
+  const data = await fetch(`/api/commits?days=${_globalChartDays}`).then(r => r.json()).catch(() => null);
+  if (!data?.series?.length) {
+    // Show wrap with controls but clear chart
+    wrap.style.display = 'block';
+    if (_chartInstances['global-chart']) { _chartInstances['global-chart'].destroy(); delete _chartInstances['global-chart']; }
+    return;
+  }
+  wrap.style.display = 'block';
+  // Force canvas reset to avoid stale sizing
+  const canvas = document.getElementById('global-chart');
+  canvas.style.display = 'none';
+  canvas.offsetHeight; // force reflow
+  canvas.style.display = '';
+  renderStackedCommitChart('global-chart', data.series);
+  document.getElementById('global-chart-csv').href = `/api/commits?format=csv&days=${_globalChartDays}`;
+  document.getElementById('global-chart-csv').setAttribute('download', '');
+}
+
+// Wire up global chart range toggles
+document.querySelectorAll('#global-chart-range .vbtn').forEach(btn => {
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#global-chart-range .vbtn').forEach(b => b.classList.remove('on'));
+    this.classList.add('on');
+    loadGlobalCommitChart(parseInt(this.dataset.d));
+  });
+});
+
 // ── worklog ────────────────────────────────────────────────────────────────
 async function loadWorklog(){
   const [stats, entries] = await Promise.all([
@@ -1225,6 +1467,7 @@ async function loadWorklog(){
   document.getElementById('s-loc-detail').textContent = locTotal ? `+${(stats.lines_added_week||0).toLocaleString()} / -${(stats.lines_removed_week||0).toLocaleString()}` : 'this week';
   document.getElementById('s-streak').textContent = stats.streak_days ?? '—';
   renderWorklogTable(entries);
+  loadGlobalCommitChart();
 }
 
 function renderWorklogTable(entries){

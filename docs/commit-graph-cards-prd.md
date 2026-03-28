@@ -41,20 +41,18 @@ Returns daily commit activity for a single project, sourced from the `worklog` t
     {
       "date": "2026-03-28",
       "commits": 3,
-      "lines_added": 142,
-      "lines_removed": 31,
       "messages": ["feat: reading library", "fix: cover aspect ratio", "docs: PRD"]
     }
   ]
 }
 ```
 
-`commits` per day is derived by counting `|`-delimited entries in the `notes` field of `[auto-git]` worklog rows. `lines_added`/`lines_removed` are summed from worklog columns directly.
+`commits` per day is derived by parsing the pipe-delimited `notes` field of `[auto-git]` worklog rows. Each row represents one day (not one commit), and individual commits are joined with ` | `. In Python: `len(notes.replace("[auto-git] ", "", 1).split(" | "))`. **Note:** `lines_added`/`lines_removed` are **not** populated by `commit_worklog.py` — that poller only writes `minutes` and `notes`. LOC data comes from the separate GitHub LOC poller (6hr interval). The commits endpoint should source LOC from worklog rows where `session_type = 'code'` and `notes NOT LIKE '[auto-git]%'` for the same project/date, or omit LOC fields and leave that to the existing `project_dashboard` endpoint.
 
 **CSV response** (when `?format=csv`):
 ```
-date,commits,lines_added,lines_removed
-2026-03-28,3,142,31
+date,commits,messages
+2026-03-28,3,"feat: reading library | fix: cover aspect ratio | docs: PRD"
 ...
 ```
 
@@ -75,8 +73,6 @@ Global commit activity across all projects. Same parameters as above.
     {
       "date": "2026-03-28",
       "total_commits": 5,
-      "lines_added": 210,
-      "lines_removed": 44,
       "by_project": [
         {"project_id": 4, "name": "anseo", "commits": 3},
         {"project_id": 7, "name": "sentinel", "commits": 2}
@@ -88,7 +84,7 @@ Global commit activity across all projects. Same parameters as above.
 
 CSV export supported here too (`?format=csv`), one row per project per day:
 ```
-date,project,commits,lines_added,lines_removed
+date,project,commits
 ```
 
 ---
@@ -172,21 +168,31 @@ Existing list/card toggle buttons remain. Cards is now the default. Toggle state
 
 The card needs a lightweight commits-this-week count without a full chart. Source this from a new optional field in the `GET /api/projects` response:
 
-Add `commits_7d` to the project list response — a count of `[auto-git]` worklog rows in the last 7 days for that project. This can be a LEFT JOIN in the existing `list_projects` query:
+Add `commits_7d` to the project list response — a **true commit count** (not row count) for the last 7 days. Since `commit_worklog.py` writes one row per project per day with pipe-delimited commit messages, row count would only give "days active" (max 7). The commit count must be derived by parsing the notes field.
 
-```sql
-SELECT p.*,
-       COALESCE(w7.cnt, 0) as commits_7d
-FROM projects p
-LEFT JOIN (
-    SELECT project_id, COUNT(*) as cnt
-    FROM worklog
-    WHERE date >= date('now', '-6 days')
-      AND notes LIKE '[auto-git]%'
-    GROUP BY project_id
-) w7 ON w7.project_id = p.id
-ORDER BY p.updated_at DESC
+Recommended approach — compute in Python after the query:
+
+```python
+# After fetching projects with their [auto-git] worklog rows for last 7 days
+for project in projects:
+    total = 0
+    for row in auto_git_rows:  # WHERE date >= date('now', '-6 days') AND notes LIKE '[auto-git]%'
+        notes = row["notes"].replace("[auto-git] ", "", 1)
+        total += len(notes.split(" | "))
+    project["commits_7d"] = total
 ```
+
+Alternatively, use a SQL approximation counting pipe separators:
+```sql
+SELECT project_id,
+       SUM(LENGTH(notes) - LENGTH(REPLACE(notes, ' | ', '  ')) + 1) as commits_7d
+FROM worklog
+WHERE date >= date('now', '-6 days')
+  AND notes LIKE '[auto-git]%'
+GROUP BY project_id
+```
+
+The Python approach is cleaner and less fragile. Since the project list is small (single-user app), the extra query is negligible.
 
 ---
 
@@ -225,8 +231,9 @@ None. All new data is derived from the existing `worklog` table.
 
 ## Notes for CC
 
-- `commit_worklog.py` is the source of truth for how commit data lands in `worklog`. Read it before touching any query that filters on `[auto-git]`.
-- The `commits` count per day is derived by parsing the `notes` field: `len(notes.split(' | '))` after stripping the `[auto-git] ` prefix, OR just count worklog rows per day per project (1 row = 1 session, not 1 commit). **Clarify with Todd which metric is preferred before implementing** — rows-per-day is simpler and more stable; parsing the pipe-delimited notes gives a true commit count.
+- `commit_worklog.py` is the source of truth for how commit data lands in `worklog`. It writes **one row per project per day**, not one row per commit. Individual commits are pipe-delimited in the `notes` field: `[auto-git] <hash> <msg> | <hash> <msg> | ...`.
+- **Commit counting: parse the notes field.** True commit count = `len(notes.replace("[auto-git] ", "", 1).split(" | "))`. Row counting only gives "days active."
+- **LOC fields (`lines_added`/`lines_removed`) are NOT populated by `commit_worklog.py`** — it only writes `minutes` and `notes`. LOC comes from the separate GitHub LOC poller. The commits endpoint omits LOC; use the existing `project_dashboard` for LOC stats.
 - Chart.js from CDN only — do not add to `requirements.txt`.
 - The existing `project_dashboard` endpoint already has LOC stats. The new commits endpoint is additive, not a replacement.
 - `static/index.html` is the single-page frontend. All JS is inline or in `<script>` blocks. Follow existing patterns — no build step, no npm.
