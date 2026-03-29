@@ -19,10 +19,13 @@ Tools:
   generate_key    — get-or-create a crypto-random key
   list_projects   — all projects with status
   update_project  — patch status, platform, site_url, or any other project field by id
+  create_project  — create a new project, returns the created record
+  get_project     — fetch a single project by id
 """
 
 import json
 import os
+import re
 import secrets as secrets_mod
 import time
 from pathlib import Path
@@ -491,6 +494,13 @@ def generate_key(
     }
 
 
+def _slugify(name: str) -> str:
+    s = name.lower().strip()
+    s = re.sub(r"[^\w\s-]", "", s)
+    s = re.sub(r"[\s_-]+", "-", s)
+    return s.strip("-")[:64]
+
+
 # ── Project tools ────────────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -545,6 +555,69 @@ def update_project(
         conn.execute(
             f"UPDATE projects SET {set_clause} WHERE id = ?", values
         )
+        row = conn.execute(
+            "SELECT * FROM projects WHERE id = ?", (project_id,)
+        ).fetchone()
+    if not row:
+        return {"error": f"Project {project_id} not found"}
+    return row_to_dict(row)
+
+
+@mcp.tool()
+def create_project(
+    name: str,
+    status: str = "development",
+    phase: Optional[str] = None,
+    platform: Optional[str] = None,
+    repo_url: Optional[str] = None,
+    site_url: Optional[str] = None,
+    machine: Optional[str] = None,
+    notes: Optional[str] = None,
+) -> dict:
+    """
+    Create a new project in Rialú.
+
+    Slug is auto-generated from name. If the slug already exists, a suffix
+    is appended to ensure uniqueness. Returns the created project record.
+
+    Args:
+        name:     Project display name, e.g. 'Litir'
+        status:   'development' (default), 'deployed', 'paused', 'research', 'running'
+        phase:    Current phase string, e.g. 'prd', 'phase-1'
+        platform: e.g. 'fly.io', 'railway', 'cf-pages', 'local'
+        repo_url: GitHub URL, e.g. 'https://github.com/todd427/anseo'
+        site_url: Live URL, e.g. 'https://litir.anseo.irish'
+        machine:  Primary machine, e.g. 'daisy', 'rose', 'iris'
+        notes:    Free-text notes
+    """
+    slug = _slugify(name)
+    with db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM projects WHERE slug = ?", (slug,)
+        ).fetchone()
+        if existing:
+            slug = f"{slug}-{existing['id']}"
+        cur = conn.execute(
+            """INSERT INTO projects
+               (name, slug, phase, status, notes, repo_url, site_url, machine, platform)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (name, slug, phase, status, notes, repo_url, site_url, machine, platform),
+        )
+        row = conn.execute(
+            "SELECT * FROM projects WHERE id = ?", (cur.lastrowid,)
+        ).fetchone()
+    return row_to_dict(row)
+
+
+@mcp.tool()
+def get_project(project_id: int) -> dict:
+    """
+    Fetch a single project by id. Returns the full project record.
+
+    Args:
+        project_id: Project id (from list_projects)
+    """
+    with db() as conn:
         row = conn.execute(
             "SELECT * FROM projects WHERE id = ?", (project_id,)
         ).fetchone()
