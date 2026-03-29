@@ -493,19 +493,34 @@ async def poll_github_repos() -> None:
 
 async def sync_project_status() -> None:
     """
-    Auto-transition project status based on deploy state, commits, and milestones.
+    Auto-transition project status and runtime based on deploy state, commits,
+    and milestones.
 
-    Rules:
+    Status (lifecycle) rules — only promotes, never demotes:
       research → development    First code worklog entry exists
       development → deployed    Matching deploy is healthy
-      deployed → paused         Matching deploy is stopped/suspended
       paused → deployed         Matching deploy comes back healthy
-      any → shipped             All milestones done (and has ≥1 milestone)
+      any → shipped             All milestones done (≥3) and not actively deployed
+
+    Runtime (infrastructure) — always updated from deploy cache:
+      healthy         → running
+      stopped         → sleeping  (scale-to-zero, auto-start)
+      suspended       → stopped   (manually stopped)
+      deploying       → deploying
+      error           → error
+      None            → None (no deploy tracked)
     """
+    RUNTIME_MAP = {
+        "healthy": "running",
+        "stopped": "sleeping",
+        "suspended": "stopped",
+        "deploying": "deploying",
+        "error": "error",
+    }
     try:
         with db() as conn:
             projects = conn.execute(
-                "SELECT id, name, slug, status FROM projects"
+                "SELECT id, name, slug, status, runtime FROM projects"
             ).fetchall()
 
             for proj in projects:
@@ -527,6 +542,15 @@ async def sync_project_status() -> None:
                 ).fetchone()
                 deploy_status = deploy["status"] if deploy else None
 
+                # Update runtime from deploy cache
+                new_runtime = RUNTIME_MAP.get(deploy_status) if deploy_status else None
+                if new_runtime != proj["runtime"]:
+                    conn.execute(
+                        "UPDATE projects SET runtime = ? WHERE id = ?",
+                        (new_runtime, pid),
+                    )
+                    log.info("[runtime] %s: %s → %s", proj["name"], proj["runtime"], new_runtime)
+
                 # Check milestones
                 ms_total = conn.execute(
                     "SELECT COUNT(*) as c FROM milestones WHERE project_id = ?", (pid,)
@@ -546,13 +570,10 @@ async def sync_project_status() -> None:
                 # All milestones done → shipped (require ≥3, and not actively deployed)
                 if ms_total >= 3 and ms_done == ms_total and deploy_status != "healthy":
                     new_status = "shipped"
-                # Deploy-based transitions
+                # Deploy-based promotions only (no demotion)
                 elif deploy_status == "healthy":
                     if old_status in ("development", "paused"):
                         new_status = "deployed"
-                elif deploy_status in ("stopped", "suspended"):
-                    if old_status == "deployed":
-                        new_status = "paused"
                 # First code → development
                 elif old_status == "research" and has_code:
                     new_status = "development"

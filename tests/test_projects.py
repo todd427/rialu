@@ -132,3 +132,49 @@ def test_log_session_creates_worklog():
     assert resp.status_code == 201
     wl = client.get("/api/worklog").json()
     assert any(e["project_id"] == pid and e["minutes"] == 45 for e in wl)
+
+
+def test_refresh_no_change():
+    """Refresh a project with no site_url and no deploy cache — status stays the same."""
+    r = client.post("/api/projects", json={"name": "Refresh Test", "status": "development"})
+    pid = r.json()["id"]
+    resp = client.post(f"/api/projects/{pid}/refresh")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["changed"] is False
+    assert data["old_status"] == "development"
+    assert data["new_status"] == "development"
+
+
+def test_refresh_promotes_from_deploy_cache():
+    """If deployments_cache says healthy, a paused project gets promoted."""
+    from db import db
+    r = client.post("/api/projects", json={"name": "CacheTest", "status": "paused"})
+    pid = r.json()["id"]
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO deployments_cache (platform, service_name, status, checked_at) VALUES (?, ?, ?, datetime('now'))",
+            ("fly", "cachetest", "healthy"),
+        )
+    resp = client.post(f"/api/projects/{pid}/refresh")
+    data = resp.json()
+    assert data["changed"] is True
+    assert data["new_status"] == "deployed"
+    # Verify it persisted
+    proj = client.get(f"/api/projects/{pid}").json()
+    assert proj["status"] == "deployed"
+
+
+def test_refresh_does_not_demote():
+    """A deployed project stays deployed even with no evidence."""
+    r = client.post("/api/projects", json={"name": "NoDemote", "status": "deployed"})
+    pid = r.json()["id"]
+    resp = client.post(f"/api/projects/{pid}/refresh")
+    data = resp.json()
+    assert data["changed"] is False
+    assert data["new_status"] == "deployed"
+
+
+def test_refresh_404():
+    resp = client.post("/api/projects/99999/refresh")
+    assert resp.status_code == 404

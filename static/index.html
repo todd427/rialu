@@ -804,6 +804,8 @@ const STATUS_PILL = {
   deployed: 'ok', paused: 'gray', shipped: 'ok',
 };
 function statusPill(s){ return `<span class="pill ${STATUS_PILL[s]||'gray'}">${s||'unknown'}</span>`; }
+const RUNTIME_ICON = { running: ['●','var(--ok)'], sleeping: ['◑','var(--warn)'], stopped: ['■','var(--err)'], deploying: ['↻','var(--acc)'], error: ['✕','var(--err)'] };
+function runtimeBadge(r){ if (!r) return ''; const [icon,color] = RUNTIME_ICON[r]||['?','var(--t3)']; return `<span style="font-size:9px;color:${color}" title="${r}">${icon} ${r}</span>`; }
 
 function timeSince(iso){
   if (!iso) return '';
@@ -838,7 +840,7 @@ function renderProjectList(projects){
         <div class="pmarker" style="background:${STATUS_COLOR[p.status]||'var(--t3)'}"></div>
         <span class="pname">${esc(p.name)}</span>
         ${p.site_url ? `<a href="${esc(p.site_url)}" target="_blank" onclick="event.stopPropagation()" style="font-size:10px;color:var(--acc);text-decoration:none;flex-shrink:0">${esc(p.site_url.replace('https://',''))}</a>` : ''}
-        ${statusPill(p.status)}
+        ${statusPill(p.status)} ${runtimeBadge(p.runtime)}
         ${p.machine ? `<span class="pmeta">${esc(p.machine)}</span>` : ''}
         ${p.phase ? `<span class="pmeta">${esc(p.phase)}</span>` : ''}
         <span class="pmeta" style="margin-left:auto">${timeSince(p.updated_at)}</span>
@@ -858,7 +860,7 @@ function renderProjectCards(projects){
       <div class="pcard-head">
         <div class="pmarker" style="background:${STATUS_COLOR[p.status]||'var(--t3)'}"></div>
         <span class="pcard-name">${esc(p.name)}</span>
-        ${statusPill(p.status)}
+        ${statusPill(p.status)} ${runtimeBadge(p.runtime)}
       </div>
       <div class="pcard-meta">
         ${p.phase ? `<span>${esc(p.phase)}</span>` : ''}
@@ -996,6 +998,7 @@ async function loadProjectDetail(id){
       </div>
     </div>
     <div class="detail-actions">
+      <button class="btn" onclick="refreshProjectStatus(${id}, this)">↻ Check status</button>
       <button class="btn" onclick="openLogForProject(${id}, '${esc(p.name)}')">Log session</button>
       <button class="btn" onclick="addMilestonePrompt(${id})">Add milestone</button>
       <button class="btn" onclick="document.getElementById('edit-form-${id}').style.display='block'">Edit project</button>
@@ -1019,6 +1022,27 @@ async function loadProjectDetail(id){
       });
     });
   }
+}
+
+async function refreshProjectStatus(id, btn){
+  const orig = btn.textContent;
+  btn.textContent = 'Checking…';
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/api/projects/${id}/refresh`, {method:'POST'});
+    const data = await r.json();
+    const rt = data.new_runtime ? ` (${data.new_runtime})` : '';
+    if (data.changed) {
+      btn.textContent = `${data.old_status} → ${data.new_status}${rt}`;
+      loadedTabs.delete('projects');
+      await loadProjects();
+    } else {
+      btn.textContent = `${data.new_status}${rt}`;
+    }
+  } catch(e) {
+    btn.textContent = 'Error';
+  }
+  setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
 }
 
 async function submitEditProject(id){

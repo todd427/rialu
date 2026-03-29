@@ -4,7 +4,10 @@ routers/projects.py — CRUD for projects, milestones, and sessions.
 
 import asyncio
 import re
+import time
 from typing import Optional
+
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -165,6 +168,92 @@ def update_project(project_id: int, p: ProjectUpdate):
     result = row_to_dict(row)
     _broadcast_project(project_id, result)
     return result
+
+
+@router.post("/{project_id}/refresh")
+async def refresh_project_status(project_id: int):
+    """
+    Lightweight status check — only promotes, never demotes.
+    Pings site_url and checks deployments_cache.
+    """
+    with db() as conn:
+        proj = conn.execute(
+            "SELECT * FROM projects WHERE id = ?", (project_id,)
+        ).fetchone()
+        if not proj:
+            raise HTTPException(404, "Project not found")
+        proj = row_to_dict(proj)
+
+        # Check deployments_cache for this project
+        deploy = conn.execute(
+            """
+            SELECT status FROM deployments_cache
+            WHERE LOWER(service_name) = ? OR LOWER(service_name) = ?
+            ORDER BY checked_at DESC LIMIT 1
+            """,
+            (proj["slug"], proj["name"].lower()),
+        ).fetchone()
+
+    RUNTIME_MAP = {
+        "healthy": "running",
+        "stopped": "sleeping",
+        "suspended": "stopped",
+        "deploying": "deploying",
+        "error": "error",
+    }
+
+    old_status = proj["status"]
+    old_runtime = proj.get("runtime")
+    new_status = old_status
+    new_runtime = old_runtime
+    checks = {"deploy_cache": None, "site_ping": None}
+
+    # Check 1: deployments_cache
+    if deploy:
+        checks["deploy_cache"] = deploy["status"]
+        new_runtime = RUNTIME_MAP.get(deploy["status"])
+        if deploy["status"] == "healthy" and old_status in ("paused", "development", "research"):
+            new_status = "deployed"
+
+    # Check 2: ping site_url
+    if proj.get("site_url"):
+        try:
+            async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+                t0 = time.monotonic()
+                r = await client.head(proj["site_url"])
+                latency = round((time.monotonic() - t0) * 1000)
+                checks["site_ping"] = {"status": r.status_code, "latency_ms": latency}
+                if r.status_code < 500 and old_status in ("paused", "development", "research"):
+                    new_status = "deployed"
+                # Site responded — if deploy cache says sleeping, it woke up
+                if r.status_code < 500 and new_runtime == "sleeping":
+                    new_runtime = "running"
+        except (httpx.RequestError, httpx.TimeoutException):
+            checks["site_ping"] = {"status": "unreachable"}
+
+    status_changed = new_status != old_status
+    runtime_changed = new_runtime != old_runtime
+    if status_changed or runtime_changed:
+        with db() as conn:
+            conn.execute(
+                "UPDATE projects SET status = ?, runtime = ?, updated_at = datetime('now') WHERE id = ?",
+                (new_status, new_runtime, project_id),
+            )
+            row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        result = row_to_dict(row)
+        _broadcast_project(project_id, result)
+    else:
+        result = proj
+
+    return {
+        "project_id": project_id,
+        "old_status": old_status,
+        "new_status": new_status,
+        "old_runtime": old_runtime,
+        "new_runtime": new_runtime,
+        "changed": status_changed or runtime_changed,
+        "checks": checks,
+    }
 
 
 @router.delete("/{project_id}", status_code=204)

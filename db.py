@@ -369,6 +369,8 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_cred_audit ON credential_audit_log(credential_id, performed_at)",
     # 018 — auth method on credentials
     "ALTER TABLE credential_store ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'password'",
+    # 019 — runtime state for projects (separate from lifecycle status)
+    "ALTER TABLE projects ADD COLUMN runtime TEXT",
 ]
 
 

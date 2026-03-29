@@ -38,7 +38,8 @@ python seed_config.py
 **Request flow:** Browser → Cloudflare Access → Fly.io → FastAPI → SQLite (WAL mode)
 
 **Routers** (`routers/`): Each maps to an API domain, all mounted under `/api/`:
-- `projects.py` — CRUD + milestones + sessions + per-project dashboard + constellation grouping
+- `projects.py` — CRUD + milestones + sessions + per-project dashboard + constellation grouping + status refresh
+- `commits.py` — Commit activity endpoints (per-project + global) with CSV export, parsed from `[auto-git]` worklog rows
 - `worklog.py` — Work sessions with LOC tracking + stats + GitHub LOC refresh
 - `deployments.py` — Cached deploy status from Fly.io and Railway pollers
 - `budget.py` — Platform costs (EUR) + API registry + billing refresh + cost-by-project
@@ -67,9 +68,9 @@ python seed_config.py
 - Fly.io billing (1hr) — cost estimation per app
 - GitHub LOC (6hr) — commit stats per project
 - GitHub repos (6hr) — cache all user repos, detect untracked
-- Project status sync (2min) — auto-transition based on deploys, commits, milestones
+- Project status sync (2min) — promotes status based on deploys/commits/milestones (never demotes), updates `runtime` field from deploy cache
 
-**Frontend:** Single-file vanilla JS SPA (`static/index.html`). Tabs: Projects (list/kanban/timeline views), Work log, Machines, Deployments, Sentinel, Budget & APIs, Mnemos, MCP, Keys. 4 themes (dark/light/slate/terminal). Also serves as backend for Faire (Tauri desktop client) via WebSocket + REST.
+**Frontend:** Single-file vanilla JS SPA (`static/index.html`). Tabs: Projects (cards/list/kanban/timeline views), Work log, Machines, Deployments, Sentinel, Budget & APIs, Mnemos, MCP, Keys. 4 themes (dark/light/slate/terminal). Chart.js 4.x from CDN for commit activity graphs. Also serves as backend for Faire (Tauri desktop client) via WebSocket + REST.
 
 **Database:** SQLite WAL mode, foreign keys enforced. Schema managed via idempotent migrations array in `db.py`. Connection via `with db() as conn:` context manager with auto-commit/rollback.
 
@@ -88,7 +89,7 @@ python seed_config.py
 
 `FLY_API_TOKEN`, `RAILWAY_API_TOKEN`, `GITHUB_PAT`, `RIALU_VAULT_KEY`, `RIALU_AGENT_KEY`, `SENTINEL_URL`, `SENTINEL_API_KEY`, `MNEMOS_API_KEY`, `FAIRE_WS_TOKEN`, `RIALU_MCP_KEY`
 
-## Current State (2026-03-24)
+## Current State (2026-03-29)
 
 - **Phase 1-2:** Complete (foundation, pollers, SPA, machine agents, key vault)
 - **Phase 3:** Complete. Anthropic usage, MCP status, Sentinel (stats + recent events), GitHub LOC, project dashboard, milestone auto-review, budget refresh, Timeline (date-based gantt), Kanban (drag-drop), API cost attribution per project
@@ -96,7 +97,8 @@ python seed_config.py
 - **Phase 5-6:** Complete. Bearer token auth, HMAC enforcement, FastMCP server at /mcp (vault + project tools), timeline + agent-events API, Faire desktop client support (CORS, WebSocket hub)
 - **Phase 7:** In progress. Constellation grouping for projects
 - **MCP connector:** Live on Claude.ai at `rialu.fly.dev/mcp` — vault CRUD + generate_key + project listing
-- **Auto status sync:** Projects auto-transition (research→development→deployed→paused→shipped) based on deploy health, git commits, and milestone completion
+- **Auto status sync:** Projects promote (research→development→deployed→shipped) based on deploy health, git commits, and milestone completion. Never demotes. Separate `runtime` field tracks infrastructure state (running/sleeping/stopped/deploying/error).
+- **Commit activity:** Per-project and global commit graphs (Chart.js) with LOC overlay, 30d/90d/1y range, CSV export. Cards layout default with `commits_7d` count.
 - **CSV exports:** All major data types downloadable from the SPA
 - **Security:** `rialu.fly.dev` locked down, MCP self-authenticating via OAuth 2.1
-- **Tests:** 225 collected across 25 test files
+- **Tests:** 269 collected across 27 test files

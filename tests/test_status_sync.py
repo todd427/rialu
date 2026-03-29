@@ -53,22 +53,29 @@ def _get_status(slug):
         return conn.execute("SELECT status FROM projects WHERE slug = ?", (slug,)).fetchone()["status"]
 
 
+def _get_runtime(slug):
+    with db() as conn:
+        return conn.execute("SELECT runtime FROM projects WHERE slug = ?", (slug,)).fetchone()["runtime"]
+
+
 @pytest.mark.asyncio
 async def test_development_to_deployed():
-    """Project in development with healthy deploy → deployed."""
+    """Project in development with healthy deploy → deployed, runtime → running."""
     _create_project("Mnemos", "mnemos", "development")
     _add_deploy("mnemos", "healthy")
     await sync_project_status()
     assert _get_status("mnemos") == "deployed"
+    assert _get_runtime("mnemos") == "running"
 
 
 @pytest.mark.asyncio
-async def test_deployed_to_paused():
-    """Deployed project with stopped deploy → paused."""
+async def test_deployed_stays_deployed_with_stopped_deploy():
+    """Deployed project with stopped deploy stays deployed, runtime → sleeping."""
     _create_project("Park", "park", "deployed")
     _add_deploy("park-api", "stopped")
     await sync_project_status()
-    assert _get_status("park") == "paused"
+    assert _get_status("park") == "deployed"
+    assert _get_runtime("park") == "sleeping"
 
 
 @pytest.mark.asyncio
