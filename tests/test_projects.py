@@ -269,3 +269,14 @@ def test_search_by_deploy_platform():
     results = resp.json()
     assert len(results) == 1
     assert results[0]["name"] == "RailProject"
+
+
+def test_create_project_with_constellation():
+    resp = client.post("/api/projects", json={
+        "name": "StarMap",
+        "status": "research",
+        "constellation": "ai-research",
+    })
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["constellation"] == "ai-research"

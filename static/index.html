@@ -227,6 +227,9 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
       <span class="slabel" id="project-count">loading...</span>
     </div>
     <input type="text" id="project-search" placeholder="Search projects… ( / )" oninput="filterProjects()" onkeydown="if(event.key==='Escape'){this.value='';filterProjects();this.blur()}" style="flex:1;min-width:140px;max-width:280px;background:var(--bg2);border:0.5px solid var(--bd2);border-radius:5px;padding:6px 10px;font-size:12px;color:var(--text);font-family:inherit;outline:none">
+    <select id="constellation-filter" onchange="filterProjects()" style="background:var(--bg2);border:0.5px solid var(--bd2);border-radius:5px;padding:6px 8px;font-size:11px;color:var(--text);font-family:inherit;outline:none">
+      <option value="">All constellations</option>
+    </select>
     <div style="display:flex;gap:6px">
       <button class="btn" onclick="reviewMilestones()">↻ Review milestones</button>
       <a class="btn" href="/api/export/projects.csv" download>↓ CSV</a>
@@ -266,7 +269,8 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
       <div class="form-field"><label>Current phase</label><input type="text" id="pf-phase" placeholder="e.g. peekaboo"></div>
     </div>
     <div class="form-row">
-      <div class="form-field"><label>Notes</label><textarea id="pf-notes" placeholder="Free-form context..."></textarea></div>
+      <div class="form-field"><label>Constellation</label><input type="text" id="pf-constellation" placeholder="e.g. ai-research"></div>
+      <div class="form-field" style="flex:2"><label>Notes</label><textarea id="pf-notes" placeholder="Free-form context..."></textarea></div>
     </div>
     <div style="display:flex;gap:7px">
       <button class="btn btn-acc" onclick="submitAddProject()">Save project</button>
@@ -641,12 +645,16 @@ function runtimeBadge(r){ if (!r) return ''; const [icon,color] = RUNTIME_ICON[r
 
 function timeSince(iso){
   if (!iso) return '';
-  const d = new Date(iso.replace(' ','T')+'Z');
-  const s = (Date.now() - d.getTime()) / 1000;
-  if (s < 120) return 'just now';
-  if (s < 3600) return Math.floor(s/60) + 'm ago';
-  if (s < 86400) return Math.floor(s/3600) + 'h ago';
-  return Math.floor(s/86400) + 'd ago';
+  let s = iso.replace(' ','T');
+  // Only append Z if the string has no timezone indicator
+  if (!/[Z+\-]\d{0,2}:?\d{0,2}$/.test(s)) s += 'Z';
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return '';
+  const sec = (Date.now() - d.getTime()) / 1000;
+  if (sec < 120) return 'just now';
+  if (sec < 3600) return Math.floor(sec/60) + 'm ago';
+  if (sec < 86400) return Math.floor(sec/3600) + 'h ago';
+  return Math.floor(sec/86400) + 'd ago';
 }
 
 // ── projects ───────────────────────────────────────────────────────────────
@@ -660,13 +668,22 @@ async function loadProjects(){
       } catch(e){ p._milestones = []; }
     }));
     allProjects = projects;
+    // Populate constellation filter
+    const constellations = [...new Set(projects.map(p => p.constellation).filter(Boolean))].sort();
+    const cFilter = document.getElementById('constellation-filter');
+    const curVal = cFilter.value;
+    cFilter.innerHTML = '<option value="">All constellations</option>' + constellations.map(c => `<option${c===curVal?' selected':''}>${c}</option>`).join('');
     // Restore search from URL hash
-    const hashQ = new URLSearchParams(location.hash.slice(1)).get('q');
+    const hashParams = new URLSearchParams(location.hash.slice(1));
+    const hashQ = hashParams.get('q');
+    const hashC = hashParams.get('c');
     if (hashQ && !document.getElementById('project-search').value) {
       document.getElementById('project-search').value = hashQ;
     }
+    if (hashC && !cFilter.value) cFilter.value = hashC;
     const searchVal = document.getElementById('project-search').value.trim();
-    if (searchVal) { filterProjects(); }
+    const filterVal = cFilter.value;
+    if (searchVal || filterVal) { filterProjects(); }
     else {
       document.getElementById('project-count').textContent = projects.length + ' projects';
       renderProjectList(projects);
@@ -680,18 +697,23 @@ async function loadProjects(){
 
 function filterProjects(){
   const q = document.getElementById('project-search').value.toLowerCase().trim();
+  const cFilter = document.getElementById('constellation-filter').value;
   // Update URL hash
   const params = new URLSearchParams(location.hash.slice(1));
   if (q) params.set('q', q); else params.delete('q');
+  if (cFilter) params.set('c', cFilter); else params.delete('c');
   const newHash = params.toString();
   history.replaceState(null, '', newHash ? '#' + newHash : location.pathname + location.search);
   // Filter
-  const filtered = q ? allProjects.filter(p => {
+  let filtered = allProjects;
+  if (cFilter) filtered = filtered.filter(p => p.constellation === cFilter);
+  if (q) filtered = filtered.filter(p => {
     const fields = [p.name, p.slug, p.notes, p.phase, p.status, p.platform, p.machine, p.constellation, p.repo_url, p.site_url];
     if (p._milestones) p._milestones.forEach(m => fields.push(m.title));
     return fields.some(v => v && v.toLowerCase().includes(q));
-  }) : allProjects;
-  document.getElementById('project-count').textContent = filtered.length + (q ? ' / ' + allProjects.length : '') + ' projects';
+  });
+  const isFiltered = q || cFilter;
+  document.getElementById('project-count').textContent = filtered.length + (isFiltered ? ' / ' + allProjects.length : '') + ' projects';
   _searchQuery = q;
   renderProjectList(filtered);
   renderProjectCards(filtered);
@@ -712,6 +734,7 @@ function renderProjectList(projects){
         ${statusPill(p.status)} ${runtimeBadge(p.runtime)}
         ${p.machine ? `<span class="pmeta">${hlesc(p.machine)}</span>` : ''}
         ${p.phase ? `<span class="pmeta">${hlesc(p.phase)}</span>` : ''}
+        ${p.constellation ? `<span class="pmeta" style="color:var(--pur)" title="constellation">${hlesc(p.constellation)}</span>` : ''}
         <span class="pmeta" style="margin-left:auto">${timeSince(p.updated_at)}</span>
         <span class="pchev">›</span>
       </div>
@@ -721,11 +744,8 @@ function renderProjectList(projects){
     </div>`).join('');
 }
 
-function renderProjectCards(projects){
-  const el = document.getElementById('pv-cards');
-  if (!projects.length){ el.innerHTML = '<div class="empty">No projects yet. Add one above.</div>'; return; }
-  el.innerHTML = '<div class="pcards">' + projects.map(p => `
-    <div class="pcard" onclick="openProjectFromCard(${p.id})">
+function _cardHtml(p){
+  return `<div class="pcard" onclick="openProjectFromCard(${p.id})">
       <div class="pcard-head">
         <div class="pmarker" style="background:${STATUS_COLOR[p.status]||'var(--t3)'}"></div>
         <span class="pcard-name">${hlesc(p.name)}</span>
@@ -735,6 +755,7 @@ function renderProjectCards(projects){
         ${p.phase ? `<span>${hlesc(p.phase)}</span>` : ''}
         ${p.platform ? `<span>${hlesc(p.platform)}</span>` : ''}
         ${p.machine ? `<span>${hlesc(p.machine)}</span>` : ''}
+        ${p.constellation ? `<span style="color:var(--pur)">${hlesc(p.constellation)}</span>` : ''}
         <span>${timeSince(p.updated_at)}</span>
       </div>
       ${p.notes && _searchQuery && p.notes.toLowerCase().includes(_searchQuery) ? `<div style="margin-top:4px;font-size:10px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${hlesc(p.notes.substring(0,120))}</div>` : ''}
@@ -744,7 +765,33 @@ function renderProjectCards(projects){
         ${p.repo_url ? `<a href="${esc(p.repo_url)}" target="_blank" onclick="event.stopPropagation()">repo</a>` : ''}
         ${p.site_url ? `<a href="${esc(p.site_url)}" target="_blank" onclick="event.stopPropagation()">${hlesc(p.site_url.replace('https://',''))}</a>` : ''}
       </div>` : ''}
-    </div>`).join('') + '</div>';
+    </div>`;
+}
+
+function renderProjectCards(projects){
+  const el = document.getElementById('pv-cards');
+  if (!projects.length){ el.innerHTML = '<div class="empty">No projects yet. Add one above.</div>'; return; }
+  // Group by constellation if any project has one
+  const hasConstellations = projects.some(p => p.constellation);
+  if (hasConstellations) {
+    const groups = {};
+    projects.forEach(p => {
+      const key = p.constellation || '_ungrouped';
+      (groups[key] = groups[key] || []).push(p);
+    });
+    const sortedKeys = Object.keys(groups).sort((a,b) => a === '_ungrouped' ? 1 : b === '_ungrouped' ? -1 : a.localeCompare(b));
+    el.innerHTML = sortedKeys.map(k => `
+      <div style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span style="font-size:12px;font-weight:600;color:var(--pur)">${k === '_ungrouped' ? 'Ungrouped' : esc(k)}</span>
+          <span style="font-size:10px;color:var(--t3)">${groups[k].length}</span>
+          <div style="flex:1;border-top:0.5px solid var(--bd);margin-top:1px"></div>
+        </div>
+        <div class="pcards">${groups[k].map(_cardHtml).join('')}</div>
+      </div>`).join('');
+  } else {
+    el.innerHTML = '<div class="pcards">' + projects.map(_cardHtml).join('') + '</div>';
+  }
 }
 
 function openProjectFromCard(id){
@@ -859,7 +906,8 @@ async function loadProjectDetail(id){
           <div class="form-field"><label>Phase</label><input type="text" id="ef-phase-${id}" value="${esc(p.phase||'')}"></div>
         </div>
         <div class="form-row">
-          <div class="form-field"><label>Notes</label><textarea id="ef-notes-${id}">${esc(p.notes||'')}</textarea></div>
+          <div class="form-field"><label>Constellation</label><input type="text" id="ef-constellation-${id}" value="${esc(p.constellation||'')}"></div>
+          <div class="form-field" style="flex:2"><label>Notes</label><textarea id="ef-notes-${id}">${esc(p.notes||'')}</textarea></div>
         </div>
         <div style="display:flex;gap:7px">
           <button class="btn btn-acc" onclick="submitEditProject(${id})">Save</button>
@@ -924,6 +972,7 @@ async function submitEditProject(id){
     repo_url: document.getElementById('ef-repo-'+id).value || null,
     site_url: document.getElementById('ef-site-'+id).value || null,
     phase: document.getElementById('ef-phase-'+id).value || null,
+    constellation: document.getElementById('ef-constellation-'+id).value || null,
     notes: document.getElementById('ef-notes-'+id).value || null,
   };
   await fetch(`/api/projects/${id}`, {
@@ -1018,6 +1067,7 @@ async function submitAddProject(){
     repo_url: document.getElementById('pf-repo').value || null,
     site_url: document.getElementById('pf-site').value || null,
     phase: document.getElementById('pf-phase').value || null,
+    constellation: document.getElementById('pf-constellation').value || null,
     notes: document.getElementById('pf-notes').value || null,
   };
   await fetch('/api/projects', {
@@ -1026,7 +1076,7 @@ async function submitAddProject(){
     body: JSON.stringify(body),
   });
   toggleAddForm();
-  ['pf-name','pf-repo','pf-site','pf-phase','pf-notes'].forEach(id => document.getElementById(id).value = '');
+  ['pf-name','pf-repo','pf-site','pf-phase','pf-constellation','pf-notes'].forEach(id => document.getElementById(id).value = '');
   loadedTabs.delete('projects');
   await loadProjects();
 }

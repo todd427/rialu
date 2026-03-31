@@ -49,6 +49,7 @@ class ProjectIn(BaseModel):
     site_url: Optional[str] = None
     machine: Optional[str] = None
     platform: Optional[str] = None
+    constellation: Optional[str] = None
 
 
 class ProjectUpdate(BaseModel):
@@ -149,9 +150,9 @@ def create_project(p: ProjectIn):
         if existing:
             slug = f"{slug}-{existing['id']}"
         cur = conn.execute(
-            """INSERT INTO projects (name, slug, phase, status, notes, repo_url, site_url, machine, platform)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (p.name, slug, p.phase, p.status, p.notes, p.repo_url, p.site_url, p.machine, p.platform),
+            """INSERT INTO projects (name, slug, phase, status, notes, repo_url, site_url, machine, platform, constellation)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (p.name, slug, p.phase, p.status, p.notes, p.repo_url, p.site_url, p.machine, p.platform, p.constellation),
         )
         row = conn.execute(
             "SELECT * FROM projects WHERE id = ?", (cur.lastrowid,)
