@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 MCP_SERVERS = [
     {
         "name": "Rialú",
-        "url": "https://rialu.fly.dev",
+        "url": "https://rialu.ie",
         "mcp_path": "/mcp",
         "platform": "fly.io",
         "description": "DevOps command centre — vault + projects",
@@ -78,11 +78,16 @@ async def _check_server(server: dict) -> dict:
         "error": None,
     }
 
+    # Self-check: hit localhost to avoid Cloudflare Access
+    is_self = server.get("name") == "Rialú"
+    check_base = "http://localhost:8080" if is_self else base
+    headers = {"Host": "rialu.ie"} if is_self else {}
+
     async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
         # 1. Health check
         try:
             t0 = time.monotonic()
-            r = await client.get(f"{base}/health")
+            r = await client.get(f"{check_base}/health", headers=headers)
             result["latency_ms"] = round((time.monotonic() - t0) * 1000)
             result["health"] = "ok" if r.status_code == 200 else f"http {r.status_code}"
         except Exception as e:
@@ -92,7 +97,7 @@ async def _check_server(server: dict) -> dict:
 
         # 2. OAuth discovery
         try:
-            r = await client.get(f"{base}/.well-known/oauth-authorization-server")
+            r = await client.get(f"{check_base}/.well-known/oauth-authorization-server", headers=headers)
             if r.status_code == 200:
                 meta = r.json()
                 has_required = all(
@@ -107,8 +112,13 @@ async def _check_server(server: dict) -> dict:
         # 3. MCP protocol check (initialize only — no auth needed to see if it responds)
         mcp_path = server.get("mcp_path", "/mcp")
         try:
+            mcp_headers = {
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+                **headers,
+            }
             r = await client.post(
-                f"{base}{mcp_path}",
+                f"{check_base}{mcp_path}",
                 json={
                     "jsonrpc": "2.0",
                     "method": "initialize",
@@ -119,10 +129,7 @@ async def _check_server(server: dict) -> dict:
                         "clientInfo": {"name": "rialu-checker", "version": "0.1"},
                     },
                 },
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "application/json, text/event-stream",
-                },
+                headers=mcp_headers,
             )
             if r.status_code == 401:
                 result["mcp"] = "auth-required"

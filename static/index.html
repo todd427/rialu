@@ -226,6 +226,7 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
       </div>
       <span class="slabel" id="project-count">loading...</span>
     </div>
+    <input type="text" id="project-search" placeholder="Search projects… ( / )" oninput="filterProjects()" onkeydown="if(event.key==='Escape'){this.value='';filterProjects();this.blur()}" style="flex:1;min-width:140px;max-width:280px;background:var(--bg2);border:0.5px solid var(--bd2);border-radius:5px;padding:6px 10px;font-size:12px;color:var(--text);font-family:inherit;outline:none">
     <div style="display:flex;gap:6px">
       <button class="btn" onclick="reviewMilestones()">↻ Review milestones</button>
       <a class="btn" href="/api/export/projects.csv" download>↓ CSV</a>
@@ -652,15 +653,52 @@ function timeSince(iso){
 async function loadProjects(){
   try {
     const projects = await fetch('/api/projects').then(r => r.json());
+    // Fetch milestones for all projects (for search)
+    await Promise.all(projects.map(async p => {
+      try {
+        p._milestones = await fetch(`/api/projects/${p.id}/milestones`).then(r => r.json());
+      } catch(e){ p._milestones = []; }
+    }));
     allProjects = projects;
-    document.getElementById('project-count').textContent = projects.length + ' projects';
-    renderProjectList(projects);
-    renderProjectCards(projects);
+    // Restore search from URL hash
+    const hashQ = new URLSearchParams(location.hash.slice(1)).get('q');
+    if (hashQ && !document.getElementById('project-search').value) {
+      document.getElementById('project-search').value = hashQ;
+    }
+    const searchVal = document.getElementById('project-search').value.trim();
+    if (searchVal) { filterProjects(); }
+    else {
+      document.getElementById('project-count').textContent = projects.length + ' projects';
+      renderProjectList(projects);
+      renderProjectCards(projects);
+    }
     populateProjectDropdown(projects);
   } catch(e){
     document.getElementById('pv-list').innerHTML = '<div class="empty">Could not load projects.</div>';
   }
 }
+
+function filterProjects(){
+  const q = document.getElementById('project-search').value.toLowerCase().trim();
+  // Update URL hash
+  const params = new URLSearchParams(location.hash.slice(1));
+  if (q) params.set('q', q); else params.delete('q');
+  const newHash = params.toString();
+  history.replaceState(null, '', newHash ? '#' + newHash : location.pathname + location.search);
+  // Filter
+  const filtered = q ? allProjects.filter(p => {
+    const fields = [p.name, p.slug, p.notes, p.phase, p.status, p.platform, p.machine, p.constellation, p.repo_url, p.site_url];
+    if (p._milestones) p._milestones.forEach(m => fields.push(m.title));
+    return fields.some(v => v && v.toLowerCase().includes(q));
+  }) : allProjects;
+  document.getElementById('project-count').textContent = filtered.length + (q ? ' / ' + allProjects.length : '') + ' projects';
+  _searchQuery = q;
+  renderProjectList(filtered);
+  renderProjectCards(filtered);
+  renderKanban(filtered);
+  renderTimeline(filtered);
+}
+let _searchQuery = '';
 
 function renderProjectList(projects){
   const el = document.getElementById('pv-list');
@@ -669,11 +707,11 @@ function renderProjectList(projects){
     <div class="prow" id="pr-${p.id}">
       <div class="prow-summary" onclick="toggleProject(${p.id})">
         <div class="pmarker" style="background:${STATUS_COLOR[p.status]||'var(--t3)'}"></div>
-        <span class="pname">${esc(p.name)}</span>
-        ${p.site_url ? `<a href="${esc(p.site_url)}" target="_blank" onclick="event.stopPropagation()" style="font-size:10px;color:var(--acc);text-decoration:none;flex-shrink:0">${esc(p.site_url.replace('https://',''))}</a>` : ''}
+        <span class="pname">${hlesc(p.name)}</span>
+        ${p.site_url ? `<a href="${esc(p.site_url)}" target="_blank" onclick="event.stopPropagation()" style="font-size:10px;color:var(--acc);text-decoration:none;flex-shrink:0">${hlesc(p.site_url.replace('https://',''))}</a>` : ''}
         ${statusPill(p.status)} ${runtimeBadge(p.runtime)}
-        ${p.machine ? `<span class="pmeta">${esc(p.machine)}</span>` : ''}
-        ${p.phase ? `<span class="pmeta">${esc(p.phase)}</span>` : ''}
+        ${p.machine ? `<span class="pmeta">${hlesc(p.machine)}</span>` : ''}
+        ${p.phase ? `<span class="pmeta">${hlesc(p.phase)}</span>` : ''}
         <span class="pmeta" style="margin-left:auto">${timeSince(p.updated_at)}</span>
         <span class="pchev">›</span>
       </div>
@@ -690,19 +728,21 @@ function renderProjectCards(projects){
     <div class="pcard" onclick="openProjectFromCard(${p.id})">
       <div class="pcard-head">
         <div class="pmarker" style="background:${STATUS_COLOR[p.status]||'var(--t3)'}"></div>
-        <span class="pcard-name">${esc(p.name)}</span>
+        <span class="pcard-name">${hlesc(p.name)}</span>
         ${statusPill(p.status)} ${runtimeBadge(p.runtime)}
       </div>
       <div class="pcard-meta">
-        ${p.phase ? `<span>${esc(p.phase)}</span>` : ''}
-        ${p.platform ? `<span>${esc(p.platform)}</span>` : ''}
-        ${p.machine ? `<span>${esc(p.machine)}</span>` : ''}
+        ${p.phase ? `<span>${hlesc(p.phase)}</span>` : ''}
+        ${p.platform ? `<span>${hlesc(p.platform)}</span>` : ''}
+        ${p.machine ? `<span>${hlesc(p.machine)}</span>` : ''}
         <span>${timeSince(p.updated_at)}</span>
       </div>
+      ${p.notes && _searchQuery && p.notes.toLowerCase().includes(_searchQuery) ? `<div style="margin-top:4px;font-size:10px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${hlesc(p.notes.substring(0,120))}</div>` : ''}
+      ${_searchQuery && p._milestones && p._milestones.some(m => m.title.toLowerCase().includes(_searchQuery)) ? `<div style="margin-top:4px;font-size:10px;color:var(--t3)">milestone: ${hlesc(p._milestones.find(m => m.title.toLowerCase().includes(_searchQuery)).title)}</div>` : ''}
       ${p.commits_7d ? `<div style="margin-top:6px;font-size:10px;color:var(--acc)">${p.commits_7d} commit${p.commits_7d===1?'':'s'} this week</div>` : ''}
       ${(p.repo_url || p.site_url) ? `<div class="pcard-links">
         ${p.repo_url ? `<a href="${esc(p.repo_url)}" target="_blank" onclick="event.stopPropagation()">repo</a>` : ''}
-        ${p.site_url ? `<a href="${esc(p.site_url)}" target="_blank" onclick="event.stopPropagation()">${esc(p.site_url.replace('https://',''))}</a>` : ''}
+        ${p.site_url ? `<a href="${esc(p.site_url)}" target="_blank" onclick="event.stopPropagation()">${hlesc(p.site_url.replace('https://',''))}</a>` : ''}
       </div>` : ''}
     </div>`).join('') + '</div>';
 }
@@ -1005,8 +1045,8 @@ function renderKanban(projects){
     return `<div class="kcol" data-status="${k}" ondragover="event.preventDefault();this.style.outline='2px solid var(--acc)'" ondragleave="this.style.outline=''" ondrop="kanbanDrop(event,'${k}');this.style.outline=''">
       <div class="kcolhdr">${labels[k]} <span style="font-weight:400;color:var(--t3)">${ps.length}</span></div>
       ${ps.map(p => `<div class="kcard" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${p.id}')" style="cursor:grab">
-        <div class="kcard-name">${esc(p.name)}</div>
-        <div class="kcard-meta">${esc([p.machine,p.platform,p.phase].filter(Boolean).join(' · '))}</div>
+        <div class="kcard-name">${hlesc(p.name)}</div>
+        <div class="kcard-meta">${hlesc([p.machine,p.platform,p.phase].filter(Boolean).join(' · '))}</div>
         <div style="margin-top:3px">${statusPill(p.status)}</div>
       </div>`).join('')}
     </div>`;
@@ -1077,7 +1117,7 @@ function renderTimeline(projects){
     const widthPct = Math.max(2, ((end - start) / totalMs) * 100);
     const label = p.phase || p.status;
     return `<div class="tbar-row">
-      <div class="tbar-label">${esc(p.name)}</div>
+      <div class="tbar-label">${hlesc(p.name)}</div>
       <div class="tbar-track">
         <div class="tbar" style="left:${leftPct.toFixed(1)}%;width:${widthPct.toFixed(1)}%;background:${statusBars[p.status]};border:0.5px solid ${statusBorders[p.status]};color:${statusText[p.status]}">${esc(label)}</div>
       </div>
@@ -2096,6 +2136,33 @@ function closeAllTerminals(){
 
 // ── utils ──────────────────────────────────────────────────────────────────
 function esc(s){ const d = document.createElement('div'); d.textContent = s||''; return d.innerHTML; }
+function hlesc(s){
+  const safe = esc(s);
+  if (!_searchQuery) return safe;
+  const re = new RegExp('(' + _searchQuery.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')','gi');
+  return safe.replace(re, '<mark style="background:var(--acc2);color:var(--text);border-radius:2px;padding:0 1px">$1</mark>');
+}
+
+// ── keyboard shortcuts ─────────────────────────────────────────────────────
+document.addEventListener('keydown', function(e){
+  const tag = (e.target.tagName||'').toLowerCase();
+  const isInput = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
+  // "/" to focus search (only when not already in an input)
+  if (e.key === '/' && !isInput && !e.ctrlKey && !e.metaKey){
+    e.preventDefault();
+    const projTab = document.querySelector('[data-tab="projects"]');
+    if (projTab && !projTab.classList.contains('on')) projTab.click();
+    document.getElementById('project-search').focus();
+  }
+  // Ctrl+K / Cmd+K to focus search from anywhere
+  if (e.key === 'k' && (e.ctrlKey || e.metaKey)){
+    e.preventDefault();
+    const projTab = document.querySelector('[data-tab="projects"]');
+    if (projTab && !projTab.classList.contains('on')) projTab.click();
+    document.getElementById('project-search').focus();
+    document.getElementById('project-search').select();
+  }
+});
 
 // ── init ───────────────────────────────────────────────────────────────────
 loadedTabs.add('projects');

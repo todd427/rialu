@@ -85,11 +85,39 @@ class SessionIn(BaseModel):
 # ── projects ─────────────────────────────────────────────────────────────────
 
 @router.get("")
-def list_projects():
+def list_projects(q: Optional[str] = None):
     with db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM projects ORDER BY updated_at DESC"
-        ).fetchall()
+        if q:
+            pattern = f"%{q}%"
+            rows = conn.execute(
+                """
+                SELECT DISTINCT p.* FROM projects p
+                LEFT JOIN deployments_cache d
+                  ON LOWER(d.service_name) = p.slug
+                  OR LOWER(d.service_name) = LOWER(p.name)
+                LEFT JOIN milestones m ON m.project_id = p.id
+                WHERE p.name LIKE ? COLLATE NOCASE
+                   OR p.slug LIKE ? COLLATE NOCASE
+                   OR p.notes LIKE ? COLLATE NOCASE
+                   OR p.phase LIKE ? COLLATE NOCASE
+                   OR p.status LIKE ? COLLATE NOCASE
+                   OR p.platform LIKE ? COLLATE NOCASE
+                   OR p.machine LIKE ? COLLATE NOCASE
+                   OR p.constellation LIKE ? COLLATE NOCASE
+                   OR p.repo_url LIKE ? COLLATE NOCASE
+                   OR p.site_url LIKE ? COLLATE NOCASE
+                   OR d.service_name LIKE ? COLLATE NOCASE
+                   OR d.url LIKE ? COLLATE NOCASE
+                   OR d.platform LIKE ? COLLATE NOCASE
+                   OR m.title LIKE ? COLLATE NOCASE
+                ORDER BY p.updated_at DESC
+                """,
+                (pattern,) * 14,
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM projects ORDER BY updated_at DESC"
+            ).fetchall()
         # commits_7d: true commit count per project (last 7 days)
         wl_rows = conn.execute(
             """

@@ -178,3 +178,94 @@ def test_refresh_does_not_demote():
 def test_refresh_404():
     resp = client.post("/api/projects/99999/refresh")
     assert resp.status_code == 404
+
+
+# ── search ──────────────────────────────────────────────────────────────────
+
+def test_search_by_name():
+    client.post("/api/projects", json={"name": "Mnemos", "status": "deployed"})
+    client.post("/api/projects", json={"name": "Legion", "status": "development"})
+    resp = client.get("/api/projects?q=mnemos")
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["name"] == "Mnemos"
+
+
+def test_search_by_notes():
+    client.post("/api/projects", json={"name": "Proj1", "status": "research", "notes": "memory corpus search engine"})
+    client.post("/api/projects", json={"name": "Proj2", "status": "research", "notes": "desktop client"})
+    resp = client.get("/api/projects?q=corpus")
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["name"] == "Proj1"
+
+
+def test_search_by_platform():
+    client.post("/api/projects", json={"name": "FlyApp", "status": "deployed", "platform": "fly.io"})
+    client.post("/api/projects", json={"name": "RailApp", "status": "deployed", "platform": "railway"})
+    resp = client.get("/api/projects?q=railway")
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["name"] == "RailApp"
+
+
+def test_search_case_insensitive():
+    client.post("/api/projects", json={"name": "Taisce", "status": "deployed"})
+    resp = client.get("/api/projects?q=TAISCE")
+    assert len(resp.json()) == 1
+
+
+def test_search_no_match():
+    client.post("/api/projects", json={"name": "Alpha", "status": "research"})
+    resp = client.get("/api/projects?q=zzzznothing")
+    assert resp.json() == []
+
+
+def test_search_by_deployment():
+    """Search matches deployment service_name or URL from deployments_cache."""
+    from db import db
+    client.post("/api/projects", json={"name": "Sentinel", "status": "deployed"})
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO deployments_cache (platform, service_name, status, url, checked_at) "
+            "VALUES ('fly', 'sentinel', 'healthy', 'https://sentinel.foxxelabs.com', datetime('now'))"
+        )
+    resp = client.get("/api/projects?q=foxxelabs")
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["name"] == "Sentinel"
+
+
+def test_search_empty_q_returns_all():
+    client.post("/api/projects", json={"name": "A", "status": "research"})
+    client.post("/api/projects", json={"name": "B", "status": "research"})
+    resp = client.get("/api/projects?q=")
+    assert len(resp.json()) == 2
+
+
+def test_search_by_milestone_title():
+    """Search matches milestone titles attached to projects."""
+    from db import db
+    r = client.post("/api/projects", json={"name": "Radharc", "status": "development"})
+    pid = r.json()["id"]
+    client.post(f"/api/projects/{pid}/milestones", json={"title": "OAuth 2.1 integration"})
+    client.post("/api/projects", json={"name": "Other", "status": "research"})
+    resp = client.get("/api/projects?q=OAuth")
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["name"] == "Radharc"
+
+
+def test_search_by_deploy_platform():
+    """Search matches deployment platform from deployments_cache."""
+    from db import db
+    client.post("/api/projects", json={"name": "RailProject", "status": "deployed"})
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO deployments_cache (platform, service_name, status, checked_at) "
+            "VALUES ('railway', 'railproject', 'healthy', datetime('now'))"
+        )
+    resp = client.get("/api/projects?q=railway")
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["name"] == "RailProject"
