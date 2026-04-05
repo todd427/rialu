@@ -2,13 +2,15 @@
 routers/sentinel.py — Sentinel threat intelligence dashboard.
 
 Proxies the Sentinel API to show threat stats, recent events,
-top offenders, and blocklist status on rialu.ie.
+top offenders, and blocklist status on rialu.ie. Also proxies
+the admin settings endpoints so Rialú is the single control plane.
 """
 
 import os
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/sentinel", tags=["sentinel"])
 
@@ -31,6 +33,29 @@ async def _sentinel_get(path: str) -> dict | list | None:
     except Exception:
         return None
 
+
+async def _sentinel_patch(path: str, payload: dict) -> dict | None:
+    if not SENTINEL_KEY:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.patch(
+                f"{SENTINEL_URL}{path}",
+                json=payload,
+                headers={"X-Sentinel-Key": SENTINEL_KEY},
+            )
+            if r.status_code == 200:
+                return r.json()
+            if r.status_code == 422:
+                raise HTTPException(status_code=422, detail=r.json().get("detail"))
+            return None
+    except HTTPException:
+        raise
+    except Exception:
+        return None
+
+
+# ── Read-only dashboard endpoints ────────────────────────────────────────
 
 @router.get("/overview")
 async def overview():
@@ -64,3 +89,27 @@ async def stats():
 @router.get("/blocklist")
 async def blocklist():
     return await _sentinel_get("/blocklist") or {"count": 0, "ips": []}
+
+
+# ── Admin settings endpoints ─────────────────────────────────────────────
+
+class SettingsPatch(BaseModel):
+    settings: dict[str, str]
+
+
+@router.get("/settings")
+async def get_settings():
+    """Proxy GET /admin/settings from Sentinel."""
+    result = await _sentinel_get("/admin/settings")
+    if result is None:
+        raise HTTPException(status_code=502, detail="Sentinel unavailable or not configured")
+    return result
+
+
+@router.patch("/settings")
+async def update_settings(data: SettingsPatch):
+    """Proxy PATCH /admin/settings to Sentinel."""
+    result = await _sentinel_patch("/admin/settings", {"settings": data.settings})
+    if result is None:
+        raise HTTPException(status_code=502, detail="Sentinel unavailable or not configured")
+    return result
