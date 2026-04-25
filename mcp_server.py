@@ -9,12 +9,23 @@ Auth: OAuth 2.1 with PKCE + Dynamic Client Registration (DCR).
       State persisted to /data/oauth_state.json (Fly.io volume).
 
 Canonical public URL: https://rialu.ie/mcp
-  RIALU_MCP_ISSUER MUST match this canonical URL — it is baked into the
-  OAuth Protected Resource Metadata (RFC 9728) at startup. If it does not
-  match the hostname clients connect on, Claude Code reports
-  "Failed to connect" because the WWW-Authenticate `resource_metadata`
-  URL is cross-origin and discovery refuses to follow it.
-  rialu.fly.dev is infrastructure, not the published interface.
+
+Two related but DISTINCT hostname concerns, deliberately decoupled here:
+
+  1. RIALU_MCP_ISSUER — the OAuth issuer URL embedded in Protected Resource
+     Metadata (RFC 9728). MUST match the canonical client-facing URL
+     (https://rialu.ie). A mismatch causes Claude Code to refuse the
+     cross-origin metadata reference and report "Failed to connect".
+
+  2. _TRUSTED_HOSTS — the DNS-rebinding-protection allowlist (CVE-2025-66416,
+     mcp>=1.23.0). MUST contain every hostname the service may receive
+     requests under. Cloudflare rewrites Host: rialu.ie -> rialu.fly.dev
+     when forwarding to the fly origin (default fly.io custom-domain proxy
+     behaviour), so BOTH must be in the allowlist even though only rialu.ie
+     is the canonical issuer.
+
+Conflating these (passing FastMCP host=<canonical hostname>) breaks one or
+the other. Keep them separate.
 
 Tools:
   vault_status    — is vault initialised, how many keys
@@ -36,7 +47,6 @@ import secrets as secrets_mod
 import time
 from pathlib import Path
 from typing import Literal, Optional
-from urllib.parse import urlparse
 
 from pydantic import AnyHttpUrl
 from mcp.server.fastmcp import FastMCP
@@ -49,6 +59,7 @@ from mcp.server.auth.provider import (
     RefreshToken,
     construct_redirect_uri,
 )
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from db import db, row_to_dict
@@ -57,16 +68,18 @@ from key_vault import encrypt_key, decrypt_key, key_hint, generate_random_key
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
-# Canonical public URL. Must match the hostname clients connect on, because
-# this value is embedded in the OAuth Protected Resource Metadata returned in
-# the WWW-Authenticate header (RFC 9728). A mismatch causes Claude Code
-# (and any conforming OAuth 2.1 client) to refuse the cross-origin metadata
-# reference and report "Failed to connect".
+# Canonical public URL — embedded in OAuth Protected Resource Metadata.
+# See module docstring for why this must match the canonical client-facing URL.
 _ISSUER_URL = os.environ.get("RIALU_MCP_ISSUER", "https://rialu.ie")
 _OAUTH_STATE = os.environ.get("RIALU_OAUTH_STATE_PATH", "/data/oauth_state.json")
 _SCOPE = "mcp"
 _TOKEN_LIFETIME = 30 * 24 * 3600  # 30 days
 _CODE_LIFETIME = 600  # 10 minutes
+
+# All hostnames the service may receive requests on. See module docstring.
+# Cloudflare rewrites Host: rialu.ie -> rialu.fly.dev when forwarding to fly,
+# so both must be allowed even though only rialu.ie is the canonical issuer.
+_TRUSTED_HOSTS = ["rialu.ie", "rialu.fly.dev"]
 
 ALLOWED_REDIRECT_DOMAINS = ["claude.ai", "localhost", "127.0.0.1"]
 
@@ -272,11 +285,15 @@ class RialuOAuthProvider(OAuthAuthorizationServerProvider):
 # ── Server ────────────────────────────────────────────────────────────────────
 
 _oauth_provider = RialuOAuthProvider(state_file=_OAUTH_STATE)
-_external_host = urlparse(_ISSUER_URL).hostname or "rialu.ie"
+
+# Build allowed_hosts with both bare and :* forms to cover whatever Cloudflare/
+# Fly forwards as the Host header (with or without explicit port).
+_allowed_hosts = []
+for h in _TRUSTED_HOSTS:
+    _allowed_hosts.extend([h, f"{h}:*"])
 
 mcp = FastMCP(
     name="Rialú",
-    host=_external_host,
     instructions=(
         "Rialú is Todd's personal DevOps command centre. Use these tools to "
         "manage the encrypted key vault (list, reveal, store, update, generate keys) and "
@@ -292,6 +309,11 @@ mcp = FastMCP(
             default_scopes=["mcp"],
         ),
         required_scopes=["mcp"],
+    ),
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=_allowed_hosts,
+        allowed_origins=[f"https://{h}" for h in _TRUSTED_HOSTS] + ["https://claude.ai"],
     ),
     stateless_http=True,
 )
