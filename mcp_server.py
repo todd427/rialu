@@ -10,22 +10,31 @@ Auth: OAuth 2.1 with PKCE + Dynamic Client Registration (DCR).
 
 Canonical public URL: https://rialu.ie/mcp
 
-Two related but DISTINCT hostname concerns, deliberately decoupled here:
+OAuth issuer URL: RIALU_MCP_ISSUER (default https://rialu.ie) is embedded in
+the OAuth Protected Resource Metadata (RFC 9728). MUST match the canonical
+client-facing URL or Claude Code will refuse the cross-origin metadata
+reference and report "Failed to connect".
 
-  1. RIALU_MCP_ISSUER — the OAuth issuer URL embedded in Protected Resource
-     Metadata (RFC 9728). MUST match the canonical client-facing URL
-     (https://rialu.ie). A mismatch causes Claude Code to refuse the
-     cross-origin metadata reference and report "Failed to connect".
+DNS rebinding protection: DISABLED.
 
-  2. _TRUSTED_HOSTS — the DNS-rebinding-protection allowlist (CVE-2025-66416,
-     mcp>=1.23.0). MUST contain every hostname the service may receive
-     requests under. Cloudflare rewrites Host: rialu.ie -> rialu.fly.dev
-     when forwarding to the fly origin (default fly.io custom-domain proxy
-     behaviour), so BOTH must be in the allowlist even though only rialu.ie
-     is the canonical issuer.
+  The MCP SDK's TransportSecuritySettings (CVE-2025-66416 mitigation,
+  mcp>=1.23.0) is designed for localhost MCP servers reachable via DNS
+  rebinding from a malicious browser tab. Rialú is a public OAuth-protected
+  server behind Cloudflare; the threat model doesn't apply, and the SDK's
+  Host-header validation actively interferes with legitimate Cloudflare ->
+  Fly.io traffic (CF rewrites Host: rialu.ie -> rialu.fly.dev when
+  forwarding to the origin, and the SDK's internal resource-server check
+  is keyed off the issuer URL, not the explicit allowed_hosts list, so
+  setting transport_security with both hostnames doesn't help).
 
-Conflating these (passing FastMCP host=<canonical hostname>) breaks one or
-the other. Keep them separate.
+  Security in this deployment is layered:
+    - TLS termination + (optional) Cloudflare Access at the edge
+    - OAuth 2.1 PKCE + DCR for authentication
+    - Bearer token + scope validation per request
+
+  Disabling DNS rebinding protection here is the SDK-documented path for
+  servers managing security at another layer (see
+  https://github.com/modelcontextprotocol/python-sdk/issues/1798).
 
 Tools:
   vault_status    — is vault initialised, how many keys
@@ -75,11 +84,6 @@ _OAUTH_STATE = os.environ.get("RIALU_OAUTH_STATE_PATH", "/data/oauth_state.json"
 _SCOPE = "mcp"
 _TOKEN_LIFETIME = 30 * 24 * 3600  # 30 days
 _CODE_LIFETIME = 600  # 10 minutes
-
-# All hostnames the service may receive requests on. See module docstring.
-# Cloudflare rewrites Host: rialu.ie -> rialu.fly.dev when forwarding to fly,
-# so both must be allowed even though only rialu.ie is the canonical issuer.
-_TRUSTED_HOSTS = ["rialu.ie", "rialu.fly.dev"]
 
 ALLOWED_REDIRECT_DOMAINS = ["claude.ai", "localhost", "127.0.0.1"]
 
@@ -286,12 +290,6 @@ class RialuOAuthProvider(OAuthAuthorizationServerProvider):
 
 _oauth_provider = RialuOAuthProvider(state_file=_OAUTH_STATE)
 
-# Build allowed_hosts with both bare and :* forms to cover whatever Cloudflare/
-# Fly forwards as the Host header (with or without explicit port).
-_allowed_hosts = []
-for h in _TRUSTED_HOSTS:
-    _allowed_hosts.extend([h, f"{h}:*"])
-
 mcp = FastMCP(
     name="Rialú",
     instructions=(
@@ -310,10 +308,10 @@ mcp = FastMCP(
         ),
         required_scopes=["mcp"],
     ),
+    # See module docstring for why this is disabled. Security is handled at the
+    # OAuth + Cloudflare layers, not at the SDK's DNS-rebinding-protection layer.
     transport_security=TransportSecuritySettings(
-        enable_dns_rebinding_protection=True,
-        allowed_hosts=_allowed_hosts,
-        allowed_origins=[f"https://{h}" for h in _TRUSTED_HOSTS] + ["https://claude.ai"],
+        enable_dns_rebinding_protection=False,
     ),
     stateless_http=True,
 )
