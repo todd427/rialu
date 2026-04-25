@@ -8,7 +8,13 @@ Auth: OAuth 2.1 with PKCE + Dynamic Client Registration (DCR).
       Same pattern as Mnemos — auto-approves authorization for a personal server.
       State persisted to /data/oauth_state.json (Fly.io volume).
 
-Claude.ai connector URL: https://rialu.ie/mcp
+Canonical public URL: https://rialu.ie/mcp
+  RIALU_MCP_ISSUER MUST match this canonical URL — it is baked into the
+  OAuth Protected Resource Metadata (RFC 9728) at startup. If it does not
+  match the hostname clients connect on, Claude Code reports
+  "Failed to connect" because the WWW-Authenticate `resource_metadata`
+  URL is cross-origin and discovery refuses to follow it.
+  rialu.fly.dev is infrastructure, not the published interface.
 
 Tools:
   vault_status    — is vault initialised, how many keys
@@ -51,7 +57,12 @@ from key_vault import encrypt_key, decrypt_key, key_hint, generate_random_key
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
-_ISSUER_URL = os.environ.get("RIALU_MCP_ISSUER", "https://rialu.fly.dev")
+# Canonical public URL. Must match the hostname clients connect on, because
+# this value is embedded in the OAuth Protected Resource Metadata returned in
+# the WWW-Authenticate header (RFC 9728). A mismatch causes Claude Code
+# (and any conforming OAuth 2.1 client) to refuse the cross-origin metadata
+# reference and report "Failed to connect".
+_ISSUER_URL = os.environ.get("RIALU_MCP_ISSUER", "https://rialu.ie")
 _OAUTH_STATE = os.environ.get("RIALU_OAUTH_STATE_PATH", "/data/oauth_state.json")
 _SCOPE = "mcp"
 _TOKEN_LIFETIME = 30 * 24 * 3600  # 30 days
