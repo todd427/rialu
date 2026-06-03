@@ -150,7 +150,6 @@ async def _check_milestone(
         "export": ["export"],
         "sentinel": ["sentinel"],
         "mnemos": ["mnemos"],
-        "key vault": ["key_vault", "shamir"],
         "fts5": ["fts5", "fts"],
         "websocket": ["ws_hub", "websocket"],
         "terminal": ["terminal", "xterm"],

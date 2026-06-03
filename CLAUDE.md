@@ -10,7 +10,7 @@ Rialú (Irish: "control") is a personal DevOps command centre — a single-user 
 
 ## Key Vault
 
-The vault has been extracted to **Taisce** (`taisce.irish`) — a standalone encrypted vault app. Rialú still has its own vault code (`key_vault.py`, `keys.py`) and MCP vault tools for backwards compatibility, but Taisce is now the primary vault. See `/home/Projects/taisce/CLAUDE.md` for details.
+The vault (keys, logins, and the Secrets Wizard) has been fully extracted to **Taisce** (`taisce.irish`) — a standalone encrypted vault app — and **removed from Rialú** (2026-06-03). The `key_store`/`credential_store` tables are dropped on startup via migration 020. Taisce is the sole source of truth for secrets. See `/home/Projects/taisce/CLAUDE.md` for details.
 
 ## Commands
 
@@ -18,7 +18,7 @@ The vault has been extracted to **Taisce** (`taisce.irish`) — a standalone enc
 # Run dev server (port 8080)
 python main.py
 
-# Run all tests (225 collected)
+# Run all tests (231 collected)
 RIALU_TEST=1 python -m pytest tests/ -v
 
 # Run a single test file
@@ -53,12 +53,10 @@ python seed_config.py
 - `export.py` — CSV exports (projects, worklog, budget, usage, sentinel)
 - `decisions.py` — Faire decision queue (create, respond, list)
 - `agents.py` — Faire agent registry and event stream
-- `keys.py` — Encrypted key vault with audit logging
 
 **Core modules:**
 - `auth.py` — Bearer token verification for Faire/MCP clients
-- `mcp_server.py` — MCP server at `/mcp` (OAuth 2.1, vault tools incl. generate_key, project tools)
-- `key_vault.py` — AES-256-GCM encryption + random key generation
+- `mcp_server.py` — MCP server at `/mcp` (OAuth 2.1, project tools: list/get/create/update)
 - `faire_hub.py` — WebSocket broadcast hub for Faire desktop clients
 - `ws_hub.py` — WebSocket hub for rialu-agent connections
 
@@ -70,7 +68,7 @@ python seed_config.py
 - GitHub repos (6hr) — cache all user repos, detect untracked
 - Project status sync (2min) — promotes status based on deploys/commits/milestones (never demotes), updates `runtime` field from deploy cache
 
-**Frontend:** Single-file vanilla JS SPA (`static/index.html`). Tabs: Projects (cards/list/kanban/timeline views), Work log, Machines, Deployments, Sentinel, Budget & APIs, Mnemos, MCP, Keys. 4 themes (dark/light/slate/terminal). Chart.js 4.x from CDN for commit activity graphs. Also serves as backend for Faire (Tauri desktop client) via WebSocket + REST.
+**Frontend:** Single-file vanilla JS SPA (`static/index.html`). Tabs: Projects (cards/list/kanban/timeline views), Work log, Machines, Deployments, Sentinel, Budget & APIs, Mnemos, MCP. 4 themes (dark/light/slate/terminal). Chart.js 4.x from CDN for commit activity graphs. Also serves as backend for Faire (Tauri desktop client) via WebSocket + REST.
 
 **Database:** SQLite WAL mode, foreign keys enforced. Schema managed via idempotent migrations array in `db.py`. Connection via `with db() as conn:` context manager with auto-commit/rollback.
 
@@ -87,18 +85,20 @@ python seed_config.py
 
 ## Fly Secrets Required
 
-`FLY_API_TOKEN`, `RAILWAY_API_TOKEN`, `GITHUB_PAT`, `RIALU_VAULT_KEY`, `RIALU_AGENT_KEY`, `SENTINEL_URL`, `SENTINEL_API_KEY`, `MNEMOS_API_KEY`, `FAIRE_WS_TOKEN`, `RIALU_MCP_KEY`
+`FLY_API_TOKEN`, `RAILWAY_API_TOKEN`, `GITHUB_PAT`, `RIALU_AGENT_KEY`, `SENTINEL_URL`, `SENTINEL_API_KEY`, `MNEMOS_API_KEY`, `FAIRE_WS_TOKEN`, `RIALU_MCP_KEY`
+
+(`RIALU_VAULT_KEY` is no longer used — safe to `fly secrets unset RIALU_VAULT_KEY` after the vault-removal deploy.)
 
 ## Current State (2026-03-29)
 
-- **Phase 1-2:** Complete (foundation, pollers, SPA, machine agents, key vault)
+- **Phase 1-2:** Complete (foundation, pollers, SPA, machine agents)
 - **Phase 3:** Complete. Anthropic usage, MCP status, Sentinel (stats + recent events), GitHub LOC, project dashboard, milestone auto-review, budget refresh, Timeline (date-based gantt), Kanban (drag-drop), API cost attribution per project
 - **Phase 4:** Complete. Mnemos integration (stats/search/auto-ingest), GitHub repo discovery + adoption + creation, Faire Phase 1 (decisions queue, agents registry, WS broadcast hub, CC stream-json wrapper, event pipeline)
-- **Phase 5-6:** Complete. Bearer token auth, HMAC enforcement, FastMCP server at /mcp (vault + project tools), timeline + agent-events API, Faire desktop client support (CORS, WebSocket hub)
+- **Phase 5-6:** Complete. Bearer token auth, HMAC enforcement, FastMCP server at /mcp (project tools), timeline + agent-events API, Faire desktop client support (CORS, WebSocket hub)
 - **Phase 7:** In progress. Constellation grouping for projects
-- **MCP connector:** Live on Claude.ai at `rialu.fly.dev/mcp` — vault CRUD + generate_key + project listing
+- **MCP connector:** Live on Claude.ai at `rialu.fly.dev/mcp` — project tools (list/get/create/update). Vault tools removed 2026-06-03 (migrated to Taisce).
 - **Auto status sync:** Projects promote (research→development→deployed→shipped) based on deploy health, git commits, and milestone completion. Never demotes. Separate `runtime` field tracks infrastructure state (running/sleeping/stopped/deploying/error).
 - **Commit activity:** Per-project and global commit graphs (Chart.js) with LOC overlay, 30d/90d/1y range, CSV export. Cards layout default with `commits_7d` count.
 - **CSV exports:** All major data types downloadable from the SPA
 - **Security:** `rialu.fly.dev` locked down, MCP self-authenticating via OAuth 2.1
-- **Tests:** 269 collected across 27 test files
+- **Tests:** 231 collected across 26 test files

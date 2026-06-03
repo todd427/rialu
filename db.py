@@ -211,30 +211,7 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_heartbeats_machine ON machine_heartbeats(machine_name, received_at)",
     # 004 — worklog auto-git lookup
     "CREATE INDEX IF NOT EXISTS idx_worklog_autogit ON worklog(project_id, date, session_type)",
-    # 005 — key vault
-    """
-    CREATE TABLE IF NOT EXISTS key_store (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        name            TEXT NOT NULL UNIQUE,
-        provider        TEXT NOT NULL,
-        encrypted_value TEXT NOT NULL,
-        hint            TEXT NOT NULL DEFAULT '••••',
-        env_var         TEXT,
-        notes           TEXT,
-        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS key_audit_log (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        key_id          INTEGER NOT NULL REFERENCES key_store(id) ON DELETE CASCADE,
-        action          TEXT NOT NULL,
-        detail          TEXT,
-        performed_at    TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_key_audit ON key_audit_log(key_id, performed_at)",
+    # 005 — key vault: removed (extracted to Taisce, dropped in migration 020)
     # 007 — milestone review log
     """
     CREATE TABLE IF NOT EXISTS milestone_review_log (
@@ -342,35 +319,15 @@ MIGRATIONS = [
     """,
     # 016 — project constellations (Phase 7)
     "ALTER TABLE projects ADD COLUMN constellation TEXT",
-    # 017 — credential store (logins)
-    """
-    CREATE TABLE IF NOT EXISTS credential_store (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        name            TEXT NOT NULL UNIQUE,
-        url             TEXT,
-        username        TEXT NOT NULL,
-        encrypted_pwd   TEXT NOT NULL,
-        pwd_hint        TEXT NOT NULL DEFAULT '••••',
-        totp_secret     TEXT,
-        notes           TEXT,
-        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS credential_audit_log (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        credential_id   INTEGER NOT NULL REFERENCES credential_store(id) ON DELETE CASCADE,
-        action          TEXT NOT NULL,
-        detail          TEXT,
-        performed_at    TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_cred_audit ON credential_audit_log(credential_id, performed_at)",
-    # 018 — auth method on credentials
-    "ALTER TABLE credential_store ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'password'",
+    # 017–018 — credential store (logins): removed (extracted to Taisce, dropped in migration 020)
     # 019 — runtime state for projects (separate from lifecycle status)
     "ALTER TABLE projects ADD COLUMN runtime TEXT",
+    # 020 — drop vault tables: keys + logins migrated to Taisce (taisce.irish).
+    # Children (audit logs) first, then parents.
+    "DROP TABLE IF EXISTS key_audit_log",
+    "DROP TABLE IF EXISTS key_store",
+    "DROP TABLE IF EXISTS credential_audit_log",
+    "DROP TABLE IF EXISTS credential_store",
 ]
 
 

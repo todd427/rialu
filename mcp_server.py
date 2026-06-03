@@ -1,7 +1,7 @@
 """
 mcp_server.py — MCP server for Rialú.
 
-Exposes key vault and project data to Claude via MCP.
+Exposes project data to Claude via MCP.
 Mount point: /mcp (mounted in main.py)
 
 Auth: OAuth 2.1 with PKCE + Dynamic Client Registration (DCR).
@@ -37,12 +37,6 @@ DNS rebinding protection: DISABLED.
   https://github.com/modelcontextprotocol/python-sdk/issues/1798).
 
 Tools:
-  vault_status    — is vault initialised, how many keys
-  list_keys       — metadata only (name, provider, hint, env_var)
-  reveal_key      — decrypt by name, audited
-  store_key       — create a new encrypted key
-  update_key      — rotate a key value by name
-  generate_key    — get-or-create a crypto-random key
   list_projects   — all projects with status
   update_project  — patch status, platform, site_url, or any other project field by id
   create_project  — create a new project, returns the created record
@@ -72,7 +66,6 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from db import db, row_to_dict
-from key_vault import encrypt_key, decrypt_key, key_hint, generate_random_key
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
@@ -294,8 +287,7 @@ mcp = FastMCP(
     name="Rialú",
     instructions=(
         "Rialú is Todd's personal DevOps command centre. Use these tools to "
-        "manage the encrypted key vault (list, reveal, store, update, generate keys) and "
-        "view project status across the portfolio."
+        "view and manage project status across the portfolio."
     ),
     auth_server_provider=_oauth_provider,
     auth=AuthSettings(
@@ -315,214 +307,6 @@ mcp = FastMCP(
     ),
     stateless_http=True,
 )
-
-
-# ── Vault tools ──────────────────────────────────────────────────────────────
-
-@mcp.tool()
-def vault_status() -> dict:
-    """Check whether the Rialú key vault is initialised and how many keys are stored."""
-    initialized = bool(os.environ.get("RIALU_VAULT_KEY", ""))
-    with db() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM key_store").fetchone()[0]
-    return {"initialized": initialized, "key_count": count}
-
-
-@mcp.tool()
-def list_keys() -> list[dict]:
-    """
-    List all stored keys — metadata only.
-    Returns name, provider, hint (last 4 chars of value), env_var, notes.
-    """
-    with db() as conn:
-        rows = conn.execute(
-            "SELECT id, name, provider, hint, env_var, notes, created_at, updated_at "
-            "FROM key_store ORDER BY provider, name"
-        ).fetchall()
-    return [row_to_dict(r) for r in rows]
-
-
-@mcp.tool()
-def reveal_key(name: str) -> dict:
-    """
-    Decrypt and return the value of a key by name. Access is logged in the audit trail.
-
-    Args:
-        name: Exact key name as stored (case-sensitive).
-    """
-    with db() as conn:
-        row = conn.execute(
-            "SELECT id, name, provider, encrypted_value, env_var FROM key_store WHERE name = ?",
-            (name,),
-        ).fetchone()
-        if not row:
-            return {"error": f"Key '{name}' not found"}
-        try:
-            value = decrypt_key(row["encrypted_value"])
-        except ValueError as e:
-            return {"error": f"Decryption failed: {e}"}
-        conn.execute(
-            "INSERT INTO key_audit_log (key_id, action, detail) VALUES (?, 'revealed', 'via MCP')",
-            (row["id"],),
-        )
-    return {
-        "id": row["id"],
-        "name": row["name"],
-        "provider": row["provider"],
-        "env_var": row["env_var"],
-        "value": value,
-    }
-
-
-@mcp.tool()
-def store_key(
-    name: str,
-    provider: str,
-    value: str,
-    env_var: Optional[str] = None,
-    notes: Optional[str] = None,
-) -> dict:
-    """
-    Store a new encrypted key in the Rialú vault.
-
-    Args:
-        name:     Unique key name, e.g. 'OPENAI_API_KEY'
-        provider: Service name, e.g. 'OpenAI', 'Anthropic', 'Fly.io'
-        value:    The secret value to encrypt and store
-        env_var:  Optional env var name this key maps to
-        notes:    Optional notes
-    """
-    encrypted = encrypt_key(value)
-    hint = key_hint(value)
-    with db() as conn:
-        existing = conn.execute(
-            "SELECT id FROM key_store WHERE name = ?", (name,)
-        ).fetchone()
-        if existing:
-            return {"error": f"Key '{name}' already exists — use update_key to rotate"}
-        cur = conn.execute(
-            "INSERT INTO key_store (name, provider, encrypted_value, hint, env_var, notes) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (name, provider, encrypted, hint, env_var, notes),
-        )
-        key_id = cur.lastrowid
-        conn.execute(
-            "INSERT INTO key_audit_log (key_id, action, detail) VALUES (?, 'created', 'via MCP')",
-            (key_id,),
-        )
-    return {"id": key_id, "name": name, "provider": provider, "hint": hint}
-
-
-@mcp.tool()
-def update_key(name: str, value: str) -> dict:
-    """
-    Rotate the value of an existing key by name.
-
-    Args:
-        name:  Exact key name (case-sensitive)
-        value: New secret value
-    """
-    encrypted = encrypt_key(value)
-    hint = key_hint(value)
-    with db() as conn:
-        row = conn.execute(
-            "SELECT id FROM key_store WHERE name = ?", (name,)
-        ).fetchone()
-        if not row:
-            return {"error": f"Key '{name}' not found"}
-        conn.execute(
-            "UPDATE key_store SET encrypted_value = ?, hint = ?, updated_at = datetime('now') WHERE id = ?",
-            (encrypted, hint, row["id"]),
-        )
-        conn.execute(
-            "INSERT INTO key_audit_log (key_id, action, detail) VALUES (?, 'updated', 'value rotated via MCP')",
-            (row["id"],),
-        )
-    return {"id": row["id"], "name": name, "hint": hint, "status": "updated"}
-
-
-@mcp.tool()
-def generate_key(
-    name: str,
-    provider: str,
-    length: int = 32,
-    encoding: Literal["hex", "base64"] = "hex",
-    env_var: Optional[str] = None,
-    notes: Optional[str] = None,
-) -> dict:
-    """
-    Generate a cryptographically random key and store it — get-or-create semantics.
-
-    If a key with this name already exists, returns the existing plaintext value
-    (audited). If not, generates a new random key, encrypts and stores it, then
-    returns the plaintext value.
-
-    Response includes `created: bool` so callers can distinguish the two cases.
-    The value is returned once — store it appropriately.
-
-    Args:
-        name:     Key name, e.g. 'SESSION_SECRET' or 'MNEMOS_HMAC_KEY'
-        provider: Service or app this key belongs to, e.g. 'App', 'Mnemos'
-        length:   Key size in bytes (8–64). Default 32 = 256-bit.
-        encoding: 'hex' (default, 64-char string) or 'base64' (URL-safe, ~43 chars)
-        env_var:  Optional env var name this maps to
-        notes:    Optional notes
-    """
-    if not (8 <= length <= 64):
-        return {"error": "length must be between 8 and 64 bytes"}
-
-    with db() as conn:
-        existing = conn.execute(
-            "SELECT id, name, provider, encrypted_value, hint, env_var FROM key_store WHERE name = ?",
-            (name,),
-        ).fetchone()
-
-        if existing:
-            try:
-                value = decrypt_key(existing["encrypted_value"])
-            except ValueError as e:
-                return {"error": f"Decryption failed: {e}"}
-            conn.execute(
-                "INSERT INTO key_audit_log (key_id, action, detail) "
-                "VALUES (?, 'revealed', 'generate_key get-or-create (existing) via MCP')",
-                (existing["id"],),
-            )
-            return {
-                "id": existing["id"],
-                "name": existing["name"],
-                "provider": existing["provider"],
-                "hint": existing["hint"],
-                "env_var": existing["env_var"],
-                "encoding": encoding,
-                "value": value,
-                "created": False,
-            }
-
-        value = generate_random_key(length, encoding)
-        encrypted = encrypt_key(value)
-        hint = key_hint(value)
-        cur = conn.execute(
-            "INSERT INTO key_store (name, provider, encrypted_value, hint, env_var, notes) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (name, provider, encrypted, hint, env_var, notes),
-        )
-        key_id = cur.lastrowid
-        conn.execute(
-            "INSERT INTO key_audit_log (key_id, action, detail) "
-            "VALUES (?, 'created', ?)",
-            (key_id, f"generated ({length}B {encoding}) via MCP"),
-        )
-
-    return {
-        "id": key_id,
-        "name": name,
-        "provider": provider,
-        "hint": hint,
-        "env_var": env_var,
-        "encoding": encoding,
-        "value": value,
-        "created": True,
-    }
 
 
 def _slugify(name: str) -> str:
@@ -655,103 +439,6 @@ def get_project(project_id: int) -> dict:
     if not row:
         return {"error": f"Project {project_id} not found"}
     return row_to_dict(row)
-
-
-# ── Login tools ──────────────────────────────────────────────────────────────
-
-@mcp.tool()
-def list_logins() -> list[dict]:
-    """
-    List all stored credentials — passwords masked.
-    Returns name, url, username, pwd_hint, notes.
-    """
-    with db() as conn:
-        rows = conn.execute(
-            "SELECT id, name, url, username, pwd_hint, notes, created_at, updated_at "
-            "FROM credential_store ORDER BY name"
-        ).fetchall()
-    return [row_to_dict(r) for r in rows]
-
-
-@mcp.tool()
-def reveal_login(name: str) -> dict:
-    """
-    Decrypt and return the password for a login by name. Audited.
-
-    Args:
-        name: Exact login name (case-sensitive), e.g. 'Anthropic Console'
-    """
-    with db() as conn:
-        row = conn.execute(
-            "SELECT id, name, url, username, encrypted_pwd, totp_secret, notes FROM credential_store WHERE name = ?",
-            (name,),
-        ).fetchone()
-        if not row:
-            return {"error": f"Login '{name}' not found"}
-        try:
-            password = decrypt_key(row["encrypted_pwd"])
-        except ValueError as e:
-            return {"error": f"Decryption failed: {e}"}
-        totp = None
-        if row["totp_secret"]:
-            try:
-                totp = decrypt_key(row["totp_secret"])
-            except ValueError:
-                pass
-        conn.execute(
-            "INSERT INTO credential_audit_log (credential_id, action, detail) VALUES (?, 'revealed', 'via MCP')",
-            (row["id"],),
-        )
-    return {
-        "id": row["id"],
-        "name": row["name"],
-        "url": row["url"],
-        "username": row["username"],
-        "password": password,
-        "totp_secret": totp,
-    }
-
-
-@mcp.tool()
-def store_login(
-    name: str,
-    password: str,
-    username: Optional[str] = "",
-    url: Optional[str] = None,
-    totp_secret: Optional[str] = None,
-    notes: Optional[str] = None,
-) -> dict:
-    """
-    Store a new login credential in the vault.
-
-    Args:
-        name:        Display name, e.g. 'Railway Dashboard', 'Google Cloud Console'
-        username:    Email or username
-        password:    Password to encrypt and store
-        url:         Login page URL (optional)
-        totp_secret: TOTP/2FA secret for backup (optional, encrypted)
-        notes:       Optional notes
-    """
-    encrypted = encrypt_key(password)
-    hint = key_hint(password)
-    enc_totp = encrypt_key(totp_secret) if totp_secret else None
-    with db() as conn:
-        existing = conn.execute(
-            "SELECT id FROM credential_store WHERE name = ?", (name,)
-        ).fetchone()
-        if existing:
-            return {"error": f"Login '{name}' already exists"}
-        cur = conn.execute(
-            "INSERT INTO credential_store (name, url, username, encrypted_pwd, pwd_hint, totp_secret, notes) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (name, url, username, encrypted, hint, enc_totp, notes),
-        )
-        cid = cur.lastrowid
-        conn.execute(
-            "INSERT INTO credential_audit_log (credential_id, action, detail) VALUES (?, 'created', 'via MCP')",
-            (cid,),
-        )
-    return {"id": cid, "name": name, "username": username, "pwd_hint": hint}
 
 
 # ── ASGI app ─────────────────────────────────────────────────────────────────
