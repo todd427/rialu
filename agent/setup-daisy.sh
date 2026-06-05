@@ -16,7 +16,9 @@ echo "==> Setting up venv at $VENV"
 if [ ! -d "$VENV" ]; then
     python3 -m venv "$VENV"
 fi
-"$VENV/bin/pip" install --quiet psutil requests
+# The agent needs psutil + websockets (it does not use requests). Install from
+# the pinned requirements so a fresh machine connects on first run.
+"$VENV/bin/pip" install --quiet -r "$SCRIPT_DIR/requirements.txt"
 
 echo "==> Installing systemd service"
 sudo cp "$SCRIPT_DIR/rialu-agent.service" /etc/systemd/system/
