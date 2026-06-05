@@ -34,6 +34,13 @@ PARKED_STATES = {"research", "paused"}
 # this many days; otherwise it is a finished service that is quiet by design.
 DEPLOYED_ACTIVE_WINDOW = 90
 
+# The one binding deadline through June 2026 (dissertation viva). Phase 1 hardcodes
+# it as a constant per the PRD; a later iteration may derive it from milestone
+# due_dates. Drives the summary-strip "Deadline" card via /api/divergence/latest.
+from datetime import date as _date
+VIVA_DEADLINE = _date(2026, 6, 12)
+DEADLINE_LABEL = "viva"
+
 
 def _has_trigger(project: dict) -> bool:
     """True if the project declares a plan to revisit it (so parking is intentional)."""
@@ -157,13 +164,44 @@ def run(window_days: int = Query(default=30, ge=1, le=365)):
 
 @router.get("/latest")
 def latest():
-    """Current health flag per project, newest project name first."""
+    """
+    Current flag per project plus an aggregate `counts` block and the days left
+    to the binding deadline. Drives both the per-card pills and the Projects-tab
+    summary strip.
+    """
     with db() as conn:
-        rows = conn.execute(
-            """SELECT id AS project_id, name AS project, health AS flag, health_checked_at
-               FROM projects ORDER BY name"""
+        proj_rows = conn.execute(
+            "SELECT id, name, health, health_checked_at FROM projects ORDER BY name"
         ).fetchall()
-    return [row_to_dict(r) for r in rows]
+        # latest detail per project, for pill tooltips / strip drill-down
+        detail_rows = conn.execute(
+            """SELECT d.project_id, d.detail
+               FROM divergence_log d
+               JOIN (SELECT project_id, MAX(id) AS mid FROM divergence_log GROUP BY project_id) m
+                 ON d.id = m.mid"""
+        ).fetchall()
+
+    details = {r["project_id"]: r["detail"] for r in detail_rows}
+    counts: dict[str, int] = {}
+    projects = []
+    for r in proj_rows:
+        flag = r["health"]
+        if flag:
+            counts[flag] = counts.get(flag, 0) + 1
+        projects.append({
+            "project_id": r["id"],
+            "name": r["name"],
+            "health": flag,
+            "health_detail": details.get(r["id"]),
+            "health_checked_at": r["health_checked_at"],
+        })
+
+    return {
+        "counts": counts,
+        "days_to_deadline": (VIVA_DEADLINE - _date.today()).days,
+        "deadline_label": DEADLINE_LABEL,
+        "projects": projects,
+    }
 
 
 @router.get("/log")

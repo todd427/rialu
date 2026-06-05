@@ -172,9 +172,26 @@ def test_latest_endpoint():
     pid = _project("LatestProj", status="development")
     client.post("/api/divergence/run")
     latest = client.get("/api/divergence/latest").json()
-    entry = next(e for e in latest if e["project_id"] == pid)
-    assert entry["flag"] == "stale-active"
-    assert entry["project"] == "LatestProj"
+    entry = next(e for e in latest["projects"] if e["project_id"] == pid)
+    assert entry["health"] == "stale-active"
+    assert entry["name"] == "LatestProj"
+    assert entry["health_detail"]
+
+
+def test_latest_counts_and_deadline():
+    init_db()
+    _project("A", status="development")          # stale-active
+    _project("B", status="paused", notes="idea")  # no-trigger
+    c = _project("C", status="running")
+    _commits(c, day_offset=2)                      # healthy
+    client.post("/api/divergence/run")
+    data = client.get("/api/divergence/latest").json()
+    assert data["counts"]["stale-active"] == 1
+    assert data["counts"]["no-trigger"] == 1
+    assert data["counts"]["healthy"] == 1
+    assert "days_to_deadline" in data
+    assert isinstance(data["days_to_deadline"], int)
+    assert data["deadline_label"] == "viva"
 
 
 def test_idempotency_one_health_two_log_rows():

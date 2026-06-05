@@ -216,6 +216,7 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
 
 <!-- PROJECTS -->
 <div id="projects" class="panel on">
+  <div class="mcards" id="divergence-strip" style="display:none;margin-bottom:10px"></div>
   <div class="row">
     <div style="display:flex;align-items:center;gap:9px">
       <div class="vtog">
@@ -644,6 +645,41 @@ function statusPill(s){ return `<span class="pill ${STATUS_PILL[s]||'gray'}">${s
 // dormant-ok (the quiet-by-design majority) renders nothing to avoid noise.
 const HEALTH_PILL = { 'stale-active': ['warn','stale'], 'no-trigger': ['gray','no trigger'], 'healthy': ['ok','healthy'] };
 function healthPill(h, detail){ const m = HEALTH_PILL[h]; if(!m) return ''; return `<span class="pill ${m[0]}" title="${esc(detail||h)}">${m[1]}</span>`; }
+
+// ── divergence summary strip (top of Projects tab) ───────────────────────────
+let _healthFilter = '';      // '' | 'stale-active' | 'no-trigger' — drill-down filter
+let _divergenceData = null;  // cached /api/divergence/latest payload
+async function loadDivergence(){
+  try { _divergenceData = await fetch('/api/divergence/latest').then(r => r.json()); }
+  catch(e){ _divergenceData = null; }
+  renderDivergenceStrip();
+}
+function renderDivergenceStrip(){
+  const el = document.getElementById('divergence-strip');
+  if (!el) return;
+  const d = _divergenceData;
+  if (!d || !d.counts){ el.style.display = 'none'; return; }
+  const c = d.counts, dd = d.days_to_deadline;
+  const ddColor = (dd != null && dd <= 14) ? 'var(--err)' : 'var(--warn)';
+  const ddText = (dd == null) ? '—'
+    : `${dd} day${dd === 1 ? '' : 's'}${d.deadline_label ? ' · ' + esc(d.deadline_label) : ''}`;
+  const filterable = (flag, label, color) => {
+    const on = _healthFilter === flag;
+    const ring = on ? `box-shadow:0 0 0 1.5px ${color}` : '';
+    return `<div class="mcard" style="cursor:pointer;${ring}" onclick="toggleHealthFilter('${flag}')" title="Click to filter to these projects"><div class="mclabel">${label}</div><div class="mcval" style="color:${color}">${c[flag] || 0}</div></div>`;
+  };
+  el.innerHTML =
+    `<div class="mcard"><div class="mclabel">Deadline</div><div class="mcval" style="font-size:15px;color:${ddColor}">${ddText}</div></div>` +
+    filterable('stale-active', 'Stale-active', 'var(--warn)') +
+    filterable('no-trigger', 'No trigger', 'var(--t2)') +
+    `<div class="mcard"><div class="mclabel">Healthy</div><div class="mcval" style="color:var(--ok)">${c['healthy'] || 0}</div></div>`;
+  el.style.display = 'grid';
+}
+function toggleHealthFilter(flag){
+  _healthFilter = (_healthFilter === flag) ? '' : flag;
+  renderDivergenceStrip();  // refresh active-card highlight
+  filterProjects();
+}
 const RUNTIME_ICON = { running: ['●','var(--ok)'], sleeping: ['◑','var(--warn)'], stopped: ['■','var(--err)'], deploying: ['↻','var(--acc)'], error: ['✕','var(--err)'] };
 function runtimeBadge(r){ if (!r) return ''; const [icon,color] = RUNTIME_ICON[r]||['?','var(--t3)']; return `<span style="font-size:9px;color:${color}" title="${r}">${icon} ${r}</span>`; }
 
@@ -687,13 +723,14 @@ async function loadProjects(){
     if (hashC && !cFilter.value) cFilter.value = hashC;
     const searchVal = document.getElementById('project-search').value.trim();
     const filterVal = cFilter.value;
-    if (searchVal || filterVal) { filterProjects(); }
+    if (searchVal || filterVal || _healthFilter) { filterProjects(); }
     else {
       document.getElementById('project-count').textContent = projects.length + ' projects';
       renderProjectList(projects);
       renderProjectCards(projects);
     }
     populateProjectDropdown(projects);
+    loadDivergence();
   } catch(e){
     document.getElementById('pv-list').innerHTML = '<div class="empty">Could not load projects.</div>';
   }
@@ -710,13 +747,14 @@ function filterProjects(){
   history.replaceState(null, '', newHash ? '#' + newHash : location.pathname + location.search);
   // Filter
   let filtered = allProjects;
+  if (_healthFilter) filtered = filtered.filter(p => p.health === _healthFilter);
   if (cFilter) filtered = filtered.filter(p => p.constellation === cFilter);
   if (q) filtered = filtered.filter(p => {
     const fields = [p.name, p.slug, p.notes, p.phase, p.status, p.platform, p.machine, p.constellation, p.repo_url, p.site_url];
     if (p._milestones) p._milestones.forEach(m => fields.push(m.title));
     return fields.some(v => v && v.toLowerCase().includes(q));
   });
-  const isFiltered = q || cFilter;
+  const isFiltered = q || cFilter || _healthFilter;
   document.getElementById('project-count').textContent = filtered.length + (isFiltered ? ' / ' + allProjects.length : '') + ' projects';
   _searchQuery = q;
   renderProjectList(filtered);
