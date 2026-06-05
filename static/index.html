@@ -672,7 +672,7 @@ function renderDivergenceStrip(){
     `<div class="mcard"><div class="mclabel">Deadline</div><div class="mcval" style="font-size:15px;color:${ddColor}">${ddText}</div></div>` +
     filterable('stale-active', 'Stale-active', 'var(--warn)') +
     filterable('no-trigger', 'No trigger', 'var(--t2)') +
-    `<div class="mcard"><div class="mclabel">Healthy</div><div class="mcval" style="color:var(--ok)">${c['healthy'] || 0}</div></div>`;
+    filterable('healthy', 'Healthy', 'var(--ok)');
   el.style.display = 'grid';
 }
 function toggleHealthFilter(flag){
