@@ -34,8 +34,10 @@ fragility that affects `milestone_review.py`. The scheduled run touches no secre
 
 1. Compute a **health flag** per project on a weekly cadence by joining declared
    status against actual commit activity.
-2. Surface the flag on the existing Projects Cards layout (see
-   `commit-graph-cards-prd.md`) as a coloured pill.
+2. Surface the flag two ways on the existing **Projects** tab: a per-card pill
+   (already built — see Part 3a) **and** an at-a-glance summary strip pinned to the
+   top of the tab (Part 3b) so the week's flagged projects are visible the instant
+   Rialú opens, with no navigation and no scanning 38 cards for amber.
 3. Log every decision for transparency (copy `milestone_review_log` pattern).
 4. Run automatically via a **Fly scheduled machine** in Rialú's existing `fly.toml`
    — no new repo, no new app, no new MCP, no new secret.
@@ -46,7 +48,10 @@ fragility that affects `milestone_review.py`. The scheduled run touches no secre
   `budget` / `api_registry` / `api_usage` / `anthropic_usage` already exist;
   income lives in the Anseo/Stór Django app, gated on VAT OSS).
 - No GitHub/git-mcp calls. Commit data is already in `worklog`.
-- No new frontend page — the pill slots into the planned Cards layout.
+- **No dedicated tab.** A separate tab is the wrong surface — it adds a click, an
+  extra `loadedTabs` entry, and a panel that reads mostly-empty most weeks (so it
+  gets forgotten). The at-a-glance view belongs at the top of Projects, the
+  default landing tab. See Part 3b rationale.
 
 ---
 
@@ -105,7 +110,7 @@ column is added, `no-trigger` = parked AND `revisit_trigger IS NULL OR ''`.
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/api/divergence/run` | Compute flags for all projects, persist current flag, append to `divergence_log`. Returns summary. Auth-guarded (see `auth.py`). Accepts optional `window_days` (default 30). |
-| `GET` | `/api/divergence/latest` | Current flag per project (reads `projects.health`, or latest log row if column not added). |
+| `GET` | `/api/divergence/latest` | Current flag per project **plus** an aggregate `counts` block and `days_to_deadline` (see 3b). Drives both the pills and the summary strip. |
 | `GET` | `/api/divergence/log?limit=50` | Recent divergence decisions, newest first. |
 
 `POST /run` response shape (mirror `milestone_review`):
@@ -117,6 +122,19 @@ column is added, `no-trigger` = parked AND `revisit_trigger IS NULL OR ''`.
   "results": [
     {"project_id": 23, "project": "Litir", "flag": "stale-active",
      "detail": "0 commits in 30d; status=development; last worklog 2026-04-02"}
+  ]
+}
+```
+
+`GET /api/divergence/latest` response shape (drives the frontend):
+```json
+{
+  "counts": {"stale-active": 4, "no-trigger": 6, "healthy": 9, "dormant-ok": 19},
+  "days_to_deadline": 7,
+  "deadline_label": "viva",
+  "projects": [
+    {"project_id": 23, "name": "Litir", "health": "stale-active",
+     "health_detail": "0 commits in 30d; status=development"}
   ]
 }
 ```
@@ -150,22 +168,65 @@ ALTER TABLE projects ADD COLUMN revisit_trigger TEXT;
 ```
 
 `init_db()` already swallows `duplicate column` errors, so these are safe on every
-startup.
+startup. The `health` column already has frontend support — `healthPill()` and the
+`HEALTH_PILL` map in `static/index.html` already render `p.health`. They show
+nothing until the backend populates the column. This PRD's backend work is what
+lights up the pills that already exist.
 
 ---
 
-## Part 3 — Frontend (pill on Cards layout)
+## Part 3 — Frontend
 
-Depends on `commit-graph-cards-prd.md` (Cards-as-default). Add one health pill to
-each card, reading the `health` field from the augmented `/api/projects` response.
+### 3a. Per-card pill (ALREADY BUILT — verify only)
 
-- Add `health` to the `GET /api/projects` response (alongside the planned
-  `commits_7d` from the commit-graph PRD).
-- Pill colour map: `stale-active` = amber, `no-trigger` = grey,
-  `healthy` = green, `dormant-ok` = no pill (don't add noise for the healthy-quiet
-  majority).
-- Pill sits next to the existing status badge. Tooltip shows the `detail` string.
-- No new page, no chart. One pill, one colour map.
+`static/index.html` already contains `healthPill(h, detail)`, the `HEALTH_PILL`
+colour map (`stale-active`=warn/amber, `no-trigger`=gray, `healthy`=ok/green,
+`dormant-ok`=nothing), and the call site in `_cardHtml`:
+`${healthPill(p.health, p.health_detail)}`. **No new pill work is needed** — just
+confirm `GET /api/projects` returns `health` and `health_detail` per project so the
+existing code has data. The pill is the per-project *confirmation* view (you're
+already looking at the card), not the at-a-glance view.
+
+### 3b. At-a-glance summary strip (NEW — the main ask)
+
+**Rationale.** The pills alone fail at-a-glance: with ~19 of 38 projects
+`dormant-ok` (no pill) and the flagged handful scattered across the card grid,
+finding "what needs attention this week" means visually scanning every card for
+amber. The summary strip fixes this — it puts the counts and the deadline where the
+eye lands first, on the default Projects tab, with one-click drill-down.
+
+**Placement.** A thin row of stat cards (reuse the existing `.mcards` / `.mcard`
+component, as on the Work Log and Budget tabs) inserted at the **top of the
+`#projects` panel**, above the `.row` that holds the view toggle. Visible in every
+project view (cards/list/kanban/timeline) since it sits above the view container.
+
+**Content.** From `GET /api/divergence/latest`:
+
+| Card | Value | Colour |
+|---|---|---|
+| Deadline | `days_to_deadline` + `deadline_label` (e.g. "7 days · viva") | `--err` if ≤14, else `--warn` |
+| Stale-active | `counts['stale-active']` | `--warn` |
+| No trigger | `counts['no-trigger']` | `--t2` (grey) |
+| Healthy | `counts['healthy']` | `--ok` |
+
+Omit a `dormant-ok` card — the quiet-by-design majority is not a number you act on.
+
+**Drill-down.** Clicking the Stale-active or No-trigger card filters the project
+views below to just those projects. Reuse the existing filter machinery: set a
+module-level `_healthFilter`, have `filterProjects()` additionally filter on
+`p.health === _healthFilter` when set, and re-render. Clicking the active card
+again clears the filter. This needs no new filtering engine — `filterProjects()`,
+`renderProjectCards()`, `renderProjectList()` already exist and already re-render
+from `allProjects`.
+
+**Deadline source.** `days_to_deadline` is computed server-side in
+`/api/divergence/latest`. For Phase 1, hardcode the viva deadline date as a module
+constant in `routers/divergence.py` (the dissertation/viva is the one binding
+deadline through June 2026). A later iteration can read the nearest unmet milestone
+`due_date` across projects — but do not over-build that now; the constant is correct
+and honest for the current window.
+
+**No chart, no new tab, no new panel.** Four stat cards + one filter hook.
 
 ---
 
@@ -210,6 +271,7 @@ Add `tests/test_divergence.py` following `tests/test_milestone_review.py` /
 - Commit counting parses pipe-delimited notes (3 commits in one row counts as 3,
   not 1).
 - `POST /run` writes `divergence_log` rows and updates `projects.health`.
+- `GET /latest` returns a `counts` block and `days_to_deadline`.
 - Idempotency: running twice in one day leaves one health value, two log rows.
 
 ---
@@ -218,13 +280,16 @@ Add `tests/test_divergence.py` following `tests/test_milestone_review.py` /
 
 - [ ] `routers/divergence.py` created, registered in `main.py`.
 - [ ] `POST /api/divergence/run` computes and persists flags; returns summary.
-- [ ] `GET /api/divergence/latest` returns current flag per project.
+- [ ] `GET /api/divergence/latest` returns per-project flags + `counts` +
+      `days_to_deadline`.
 - [ ] `GET /api/divergence/log` returns recent decisions newest-first.
 - [ ] Migrations 021–023 appended to `db.py`, idempotent on restart.
 - [ ] Commit counting reuses `commits.py` parsing (no duplicated logic).
 - [ ] `deployed`/`shipped`/`archived` quiet projects are `dormant-ok`, not stale.
 - [ ] `runtime` column respected — lifecycle-done ≠ stale.
-- [ ] `health` added to `GET /api/projects`; pill renders on cards.
+- [ ] `health` + `health_detail` added to `GET /api/projects`; existing pills light up.
+- [ ] Summary strip renders at top of Projects tab with 4 stat cards.
+- [ ] Clicking Stale-active / No-trigger cards filters project views; click again clears.
 - [ ] CLI `divergence-run` subcommand works against the shared DB.
 - [ ] Fly scheduled machine added to `fly.toml` (weekly).
 - [ ] `tests/test_divergence.py` passes; existing suite still green.
@@ -236,20 +301,25 @@ Add `tests/test_divergence.py` following `tests/test_milestone_review.py` /
 - **Read first:** `routers/milestone_review.py` (shape to mirror),
   `routers/commits.py` (commit parsing — reuse `_parse_commit_count`),
   `db.py` (migration pattern: numbered, idempotent, `init_db` swallows
-  duplicate-column), `commit-graph-cards-prd.md` (the Cards layout this pill
-  attaches to).
+  duplicate-column), `static/index.html` (`healthPill`/`HEALTH_PILL` already
+  present; `.mcards` strip pattern used on Work Log + Budget tabs; `filterProjects`
+  for the drill-down hook).
+- **The pills are already built.** Do not re-add them. Your job is the backend that
+  populates `health`/`health_detail`, plus the new summary strip + filter hook.
 - **Do not call git-mcp or GitHub.** Commit activity is already in `worklog`. This
   is the whole reason the scheduled job is reliable — keep it that way.
 - **`status` is lifecycle, `runtime` is operational state** (migration 019). Do not
   conflate. Only `development`/`running` (and conditionally `deployed`) are
   active-class for staleness.
 - **The majority flag will be `dormant-ok`** — that's correct and healthy. The
-  signal is the small set of `stale-active` and `no-trigger`. Don't render pills
-  for `dormant-ok`; noise defeats the purpose.
+  signal is the small set of `stale-active` and `no-trigger`. No pill and no
+  summary card for `dormant-ok`; noise defeats the purpose.
 - **Factor the core into a function** (`run_divergence()`) shared by the route and
   the CLI — don't implement the logic twice.
+- **No dedicated tab.** The summary strip on the Projects tab is the deliberate
+  choice; a separate tab would be checked rarely and forgotten.
 - `static/index.html` is the single-page frontend, inline JS, no build step.
   Follow existing patterns.
 - This is Phase 1. The Financial PRD (cost pollers into existing `budget` /
-  `api_usage` / `anthropic_usage` tables; income in Anseo gated on VAT OSS) is a
-  separate brief.
+  `api_usage` / `anthropic_usage` tables — note `anthropic_usage` already has a
+  CSV-import path; income in Anseo gated on VAT OSS) is a separate brief.
