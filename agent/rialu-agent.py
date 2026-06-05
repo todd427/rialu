@@ -652,6 +652,7 @@ def send_tmux_keys(pane_id: str, keys: str):
 
 async def heartbeat_loop(ws):
     """Send heartbeat with system stats every HEARTBEAT_INTERVAL seconds."""
+    from websockets.exceptions import ConnectionClosed
     while True:
         try:
             payload = {
@@ -667,6 +668,10 @@ async def heartbeat_loop(ws):
             await ws.send(json.dumps(payload))
             log.info("Heartbeat sent — cpu=%.1f%% ram=%.1f%% repos=%d",
                      payload["cpu_pct"], payload["ram_pct"], len(payload["repos"]))
+        except ConnectionClosed:
+            # Connection dropped (e.g. CloudFlare proxy restart). Propagate so
+            # run()'s reconnect loop fires — do NOT swallow and keep spinning.
+            raise
         except Exception:
             log.exception("Heartbeat error")
         await asyncio.sleep(HEARTBEAT_INTERVAL)
@@ -674,6 +679,7 @@ async def heartbeat_loop(ws):
 
 async def tmux_monitor_loop(ws):
     """Periodically enumerate tmux sessions and send to hub."""
+    from websockets.exceptions import ConnectionClosed
     while True:
         try:
             sessions = enumerate_tmux()
@@ -691,6 +697,9 @@ async def tmux_monitor_loop(ws):
                     "machine": MACHINE_NAME,
                     "sessions": claude_sessions,
                 }))
+        except ConnectionClosed:
+            # Connection dropped — propagate so run() reconnects.
+            raise
         except Exception:
             log.exception("tmux monitor error")
         await asyncio.sleep(TMUX_POLL_INTERVAL)
@@ -737,6 +746,9 @@ async def receive_loop(ws):
 
         except Exception:
             log.exception("Error handling message: %s", raw[:200])
+    # `async for` ending means the hub closed the socket cleanly (1001 etc.)
+    # without raising. Signal run() to tear down and reconnect.
+    raise ConnectionError("hub connection closed")
 
 
 async def handle_action(ws, data: dict):
