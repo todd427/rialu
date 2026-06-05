@@ -100,6 +100,9 @@ class RialuOAuthProvider(OAuthAuthorizationServerProvider):
         self._codes: dict = {}
         self._tokens: dict = {}
         self._refresh: dict = {}
+        # Long-lived static bearer (env) — lets a first-party client (e.g. Duel)
+        # authenticate without the OAuth dance. Grants scope "mcp" like any token.
+        self._static = os.environ.get("RIALU_MCP_STATIC_TOKEN", "")
         self._load()
 
     def _load(self) -> None:
@@ -226,6 +229,13 @@ class RialuOAuthProvider(OAuthAuthorizationServerProvider):
         )
 
     async def load_access_token(self, token: str) -> AccessToken | None:
+        if self._static and secrets_mod.compare_digest(token, self._static):
+            return AccessToken(
+                token=token,
+                client_id="static",
+                scopes=[_SCOPE],
+                expires_at=int(time.time()) + 3650 * 24 * 3600,  # ~10y
+            )
         data = self._tokens.get(token)
         if not data:
             return None
