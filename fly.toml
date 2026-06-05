@@ -25,3 +25,21 @@ primary_region = "lhr"
   memory = "512mb"
   cpu_kind = "shared"
   cpus = 1
+
+# ── Scheduled jobs ────────────────────────────────────────────────────────────
+# Weekly portfolio divergence digest. Fly.toml has no native cron field, so the
+# scheduled machine is created out-of-band (once) from the same image, sharing
+# the rialu_data volume. It runs the digest in-process and exits:
+#
+#   fly machine run . \
+#     --app rialu \
+#     --region lhr \
+#     --schedule weekly \
+#     --volume rialu_data:/data \
+#     --entrypoint "python cli/rialu divergence-run"
+#
+# Notes:
+#   - No HTTP self-call, no extra secret — reads/writes /data/rialu.db directly.
+#   - The digest is idempotent (overwrites projects.health, appends a log row),
+#     so Fly's coarse "weekly" cadence (~Mon 00:00 UTC, no per-cron control) and
+#     any DST drift are harmless.

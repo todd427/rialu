@@ -328,6 +328,24 @@ MIGRATIONS = [
     "DROP TABLE IF EXISTS key_store",
     "DROP TABLE IF EXISTS credential_audit_log",
     "DROP TABLE IF EXISTS credential_store",
+    # 021 — divergence digest log (one row per project per run)
+    """
+    CREATE TABLE IF NOT EXISTS divergence_log (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        project_name TEXT NOT NULL,
+        flag        TEXT NOT NULL,
+        detail      TEXT,
+        window_days INTEGER NOT NULL DEFAULT 30,
+        checked_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_divergence_checked ON divergence_log(checked_at)",
+    # 022 — current health on projects (first-class, avoids max-by-date subquery)
+    "ALTER TABLE projects ADD COLUMN health TEXT",
+    "ALTER TABLE projects ADD COLUMN health_checked_at TEXT",
+    # 023 — revisit trigger (enables clean no-trigger detection)
+    "ALTER TABLE projects ADD COLUMN revisit_trigger TEXT",
 ]
 
 

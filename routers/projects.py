@@ -128,14 +128,25 @@ def list_projects(q: Optional[str] = None):
               AND notes LIKE '[auto-git]%'
             """
         ).fetchall()
+        # health_detail: detail string from each project's most recent divergence run
+        detail_rows = conn.execute(
+            """
+            SELECT d.project_id, d.detail
+            FROM divergence_log d
+            JOIN (SELECT project_id, MAX(id) AS mid FROM divergence_log GROUP BY project_id) m
+              ON d.id = m.mid
+            """
+        ).fetchall()
     commits_by_project: dict[int, int] = {}
     for wl in wl_rows:
         body = wl["notes"].replace("[auto-git] ", "", 1)
         count = len(body.split(" | ")) if body else 0
         commits_by_project[wl["project_id"]] = commits_by_project.get(wl["project_id"], 0) + count
+    detail_by_project = {r["project_id"]: r["detail"] for r in detail_rows}
     projects = [row_to_dict(r) for r in rows]
     for p in projects:
         p["commits_7d"] = commits_by_project.get(p["id"], 0)
+        p["health_detail"] = detail_by_project.get(p["id"])
     return projects
 
 

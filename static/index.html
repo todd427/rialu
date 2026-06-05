@@ -640,6 +640,10 @@ const STATUS_PILL = {
   deployed: 'ok', paused: 'gray', shipped: 'ok',
 };
 function statusPill(s){ return `<span class="pill ${STATUS_PILL[s]||'gray'}">${s||'unknown'}</span>`; }
+// Divergence health pill — amber=stale-active, grey=no-trigger, green=healthy.
+// dormant-ok (the quiet-by-design majority) renders nothing to avoid noise.
+const HEALTH_PILL = { 'stale-active': ['warn','stale'], 'no-trigger': ['gray','no trigger'], 'healthy': ['ok','healthy'] };
+function healthPill(h, detail){ const m = HEALTH_PILL[h]; if(!m) return ''; return `<span class="pill ${m[0]}" title="${esc(detail||h)}">${m[1]}</span>`; }
 const RUNTIME_ICON = { running: ['●','var(--ok)'], sleeping: ['◑','var(--warn)'], stopped: ['■','var(--err)'], deploying: ['↻','var(--acc)'], error: ['✕','var(--err)'] };
 function runtimeBadge(r){ if (!r) return ''; const [icon,color] = RUNTIME_ICON[r]||['?','var(--t3)']; return `<span style="font-size:9px;color:${color}" title="${r}">${icon} ${r}</span>`; }
 
@@ -749,7 +753,7 @@ function _cardHtml(p){
       <div class="pcard-head">
         <div class="pmarker" style="background:${STATUS_COLOR[p.status]||'var(--t3)'}"></div>
         <span class="pcard-name">${hlesc(p.name)}</span>
-        ${statusPill(p.status)} ${runtimeBadge(p.runtime)}
+        ${statusPill(p.status)} ${runtimeBadge(p.runtime)} ${healthPill(p.health, p.health_detail)}
       </div>
       <div class="pcard-meta">
         ${p.phase ? `<span>${hlesc(p.phase)}</span>` : ''}
