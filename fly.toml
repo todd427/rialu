@@ -28,18 +28,19 @@ primary_region = "lhr"
 
 # ── Scheduled jobs ────────────────────────────────────────────────────────────
 # Weekly portfolio divergence digest. Fly.toml has no native cron field, so the
-# scheduled machine is created out-of-band (once) from the same image, sharing
-# the rialu_data volume. It runs the digest in-process and exits:
+# scheduled machine is created out-of-band (once). The rialu_data volume is
+# SINGLE-ATTACH (already held by the app machine), so the scheduled machine
+# cannot run the digest in-process — instead it POSTs to the app's public edge,
+# which auto-starts the app machine that owns the volume:
 #
-#   fly machine run . \
+#   fly machine run registry.fly.io/rialu:<current-deploy-tag> \
 #     --app rialu \
 #     --region lhr \
 #     --schedule weekly \
-#     --volume rialu_data:/data \
-#     --entrypoint "python cli/rialu divergence-run"
+#     --restart no \
+#     python scripts/divergence_selfcall.py
 #
-# Notes:
-#   - No HTTP self-call, no extra secret — reads/writes /data/rialu.db directly.
-#   - The digest is idempotent (overwrites projects.health, appends a log row),
-#     so Fly's coarse "weekly" cadence (~Mon 00:00 UTC, no per-cron control) and
-#     any DST drift are harmless.
+# (Use the image tag from `fly status`/`fly machines list`.) The script targets
+# rialu.fly.dev with a `Host: rialu.ie` header (clears CanonicalHostMiddleware)
+# and a Bearer FAIRE_WS_TOKEN (app secret, inherited). The digest is idempotent,
+# so Fly's coarse "weekly" cadence (~Mon 00:00 UTC) and DST drift are harmless.
