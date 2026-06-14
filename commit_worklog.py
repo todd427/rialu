@@ -19,6 +19,9 @@ log = logging.getLogger("commit_worklog")
 MAX_GAP_MINUTES = 120  # gaps > 2h start a new session
 FIRST_COMMIT_MINUTES = 30  # default time for first commit in a session
 
+# Prefix marking an auto-generated row (must match routers/commits.py parser).
+AUTO_GIT_PREFIX = "[auto-git] "
+
 
 def process_commits_for_worklog(repos: list) -> list:
     """
@@ -38,9 +41,7 @@ def process_commits_for_worklog(repos: list) -> list:
 
     summaries = []
     for (project_id, date_str), commits in project_commits.items():
-        minutes = _compute_minutes(commits)
-        notes = _build_notes(commits)
-        action = _upsert_worklog(project_id, date_str, minutes, notes)
+        action = _upsert_worklog(project_id, date_str, commits)
         if action:
             summaries.append(action)
 
@@ -118,11 +119,41 @@ def _build_notes(commits: list) -> str:
     """Build notes string from commits, prefixed with [auto-git]."""
     sorted_commits = sorted(commits, key=lambda c: c["dt"])
     parts = [f"{c['hash']} {c['message']}" for c in sorted_commits]
-    return "[auto-git] " + " | ".join(parts)
+    return AUTO_GIT_PREFIX + " | ".join(parts)
 
 
-def _upsert_worklog(project_id: int, date_str: str, minutes: int, notes: str) -> dict:
-    """Create or update a worklog entry. Returns summary dict or None."""
+def _parse_notes_entries(notes: str) -> dict:
+    """Parse an [auto-git] notes string into an ordered {hash: 'hash message'} map.
+
+    Mirrors the pipe-delimited 'hash message' format routers/commits.py parses,
+    so a merged row stays readable by the same consumer.
+    """
+    body = notes[len(AUTO_GIT_PREFIX):] if notes.startswith(AUTO_GIT_PREFIX) else notes
+    entries = {}
+    for chunk in (body.split(" | ") if body else []):
+        h = chunk.split(" ", 1)[0]
+        if h:
+            entries[h] = chunk
+    return entries
+
+
+def _upsert_worklog(project_id: int, date_str: str, incoming_commits: list) -> dict:
+    """Create or merge the [auto-git] worklog row for a project-day.
+
+    Multi-machine safe: the row holds the UNION of commits (deduped by hash)
+    across every machine that reports the repo, instead of the last reporter
+    clobbering it. Minutes is the max of each reporter's gap-heuristic estimate
+    — we can't recompute the heuristic across machines without every commit's
+    timestamp, and max never shrinks a real session when a machine that is
+    behind reports only a partial view. Returns a summary dict, or None when
+    this reporter added nothing new.
+    """
+    incoming = sorted(incoming_commits, key=lambda c: c["dt"])
+    incoming_minutes = _compute_minutes(incoming)
+    incoming_entries = {
+        c["hash"]: f"{c['hash']} {c['message']}" for c in incoming if c.get("hash")
+    }
+
     with db() as conn:
         existing = conn.execute(
             """SELECT id, minutes, notes FROM worklog
@@ -132,17 +163,25 @@ def _upsert_worklog(project_id: int, date_str: str, minutes: int, notes: str) ->
         ).fetchone()
 
         if existing:
+            # Union by hash: incoming (timestamp-ordered) first, then any
+            # commits a different machine reported earlier that we don't have.
+            merged = dict(incoming_entries)
+            for h, chunk in _parse_notes_entries(existing["notes"]).items():
+                merged.setdefault(h, chunk)
+            notes = AUTO_GIT_PREFIX + " | ".join(merged.values())
+            minutes = max(existing["minutes"] or 0, incoming_minutes)
             if existing["minutes"] == minutes and existing["notes"] == notes:
-                return None  # No change
+                return None  # nothing new from this reporter
             conn.execute(
                 "UPDATE worklog SET minutes = ?, notes = ? WHERE id = ?",
                 (minutes, notes, existing["id"]),
             )
             return {"action": "updated", "project_id": project_id, "date": date_str, "minutes": minutes}
-        else:
-            conn.execute(
-                """INSERT INTO worklog (project_id, date, minutes, session_type, notes)
-                   VALUES (?, ?, ?, 'code', ?)""",
-                (project_id, date_str, minutes, notes),
-            )
-            return {"action": "created", "project_id": project_id, "date": date_str, "minutes": minutes}
+
+        notes = AUTO_GIT_PREFIX + " | ".join(incoming_entries.values())
+        conn.execute(
+            """INSERT INTO worklog (project_id, date, minutes, session_type, notes)
+               VALUES (?, ?, ?, 'code', ?)""",
+            (project_id, date_str, incoming_minutes, notes),
+        )
+        return {"action": "created", "project_id": project_id, "date": date_str, "minutes": incoming_minutes}

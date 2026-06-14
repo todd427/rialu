@@ -208,3 +208,82 @@ def test_manual_worklog_untouched():
     assert len(rows) == 2  # manual + auto-git, both preserved
     assert rows[0]["notes"] == "Manual entry"
     assert rows[1]["notes"].startswith("[auto-git]")
+
+
+# ── Multi-machine merge tests ───────────────────────────────────────────────
+
+def _commit(h, msg, dt):
+    return {"hash": h, "message": msg, "dt": dt}
+
+
+def _entries(notes):
+    return notes.replace("[auto-git] ", "", 1).split(" | ")
+
+
+def test_two_machines_union_by_hash():
+    """Two machines reporting the same repo merge into the UNION of commits,
+    deduped by hash — neither clobbers the other."""
+    pid = _create_project("rialu")
+    base = datetime(2026, 3, 21, 10, 0, tzinfo=timezone.utc)
+
+    # Daisy sees commits A, B
+    daisy = [_commit("aaaa", "A", base), _commit("bbbb", "B", base + timedelta(minutes=30))]
+    process_commits_for_worklog([_make_repo("rialu", daisy)])
+
+    # Iris sees B (shared) and C (an Iris-only commit not yet on Daisy)
+    iris = [_commit("bbbb", "B", base + timedelta(minutes=30)),
+            _commit("cccc", "C", base + timedelta(minutes=60))]
+    summaries = process_commits_for_worklog([_make_repo("rialu", iris)])
+
+    assert len(summaries) == 1
+    assert summaries[0]["action"] == "updated"
+
+    with db() as conn:
+        rows = conn.execute("SELECT notes FROM worklog WHERE project_id = ?", (pid,)).fetchall()
+    assert len(rows) == 1  # one project-day row
+    notes = rows[0]["notes"]
+    for h in ("aaaa", "bbbb", "cccc"):
+        assert notes.count(h) == 1  # B not duplicated
+    assert len(_entries(notes)) == 3
+
+
+def test_behind_machine_does_not_shrink_row():
+    """A machine reporting a subset (it is behind) must not drop commits the
+    row already has, and is a no-op."""
+    pid = _create_project("rialu")
+    base = datetime(2026, 3, 21, 10, 0, tzinfo=timezone.utc)
+
+    full = [_commit("aaaa", "A", base),
+            _commit("bbbb", "B", base + timedelta(minutes=30)),
+            _commit("cccc", "C", base + timedelta(minutes=60))]
+    process_commits_for_worklog([_make_repo("rialu", full)])
+
+    behind = [_commit("aaaa", "A", base)]  # only the first commit
+    summaries = process_commits_for_worklog([_make_repo("rialu", behind)])
+
+    assert summaries == []  # nothing new, nothing lost
+    with db() as conn:
+        notes = conn.execute(
+            "SELECT notes FROM worklog WHERE project_id = ?", (pid,)
+        ).fetchone()["notes"]
+    assert len(_entries(notes)) == 3
+
+
+def test_minutes_is_max_across_reporters():
+    """Minutes is the max across machines; a partial report can't lower it."""
+    _create_project("rialu")
+    base = datetime(2026, 3, 21, 10, 0, tzinfo=timezone.utc)
+
+    full = [_commit("aaaa", "A", base),
+            _commit("bbbb", "B", base + timedelta(minutes=30)),
+            _commit("cccc", "C", base + timedelta(minutes=60))]
+    process_commits_for_worklog([_make_repo("rialu", full)])  # 90 min
+
+    behind = [_commit("aaaa", "A", base)]  # 30 min on its own
+    process_commits_for_worklog([_make_repo("rialu", behind)])
+
+    with db() as conn:
+        minutes = conn.execute(
+            "SELECT minutes FROM worklog WHERE notes LIKE '[auto-git]%'"
+        ).fetchone()["minutes"]
+    assert minutes == 90
