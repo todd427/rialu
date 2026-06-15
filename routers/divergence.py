@@ -37,8 +37,10 @@ DEPLOYED_ACTIVE_WINDOW = 90
 # The one binding deadline through June 2026 (dissertation viva). Phase 1 hardcodes
 # it as a constant per the PRD; a later iteration may derive it from milestone
 # due_dates. Drives the summary-strip "Deadline" card via /api/divergence/latest.
+# NB: this is the VIVA date (19 June), not the 12 June submission deadline — the
+# manuscript was submitted 10 June; the binding date through this window is the viva.
 from datetime import date as _date
-VIVA_DEADLINE = _date(2026, 6, 12)
+VIVA_DEADLINE = _date(2026, 6, 19)
 DEADLINE_LABEL = "viva"
 
 
