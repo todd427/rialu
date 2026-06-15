@@ -209,3 +209,22 @@ def machines_status():
         if m not in machines:
             machines[m] = {"last_heartbeat": None, "ws_connected": True}
     return machines
+
+
+@router.delete("/machines/{machine}")
+def remove_machine(machine: str):
+    """Remove a machine's stored heartbeat — clears a retired/ghost card.
+
+    Refuses if the agent is currently WS-connected, since a live machine would
+    just re-create the row on its next heartbeat.
+    """
+    if hub.is_connected(machine):
+        raise HTTPException(status_code=409, detail=f"Machine '{machine}' is currently connected")
+    with db() as conn:
+        cur = conn.execute(
+            "DELETE FROM machine_heartbeats WHERE machine_name = ?", (machine,)
+        )
+        deleted = cur.rowcount
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Machine '{machine}' not found")
+    return {"status": "removed", "machine": machine}

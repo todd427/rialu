@@ -1949,6 +1949,17 @@ function rbar(label, pct, cls){
   </div>`;
 }
 
+async function removeMachine(machine){
+  if (!confirm(`Remove "${machine}"? This clears its last-seen card. If the agent is still running it will reappear on its next heartbeat.`)) return;
+  const r = await fetch(`/api/machines/${encodeURIComponent(machine)}`, {method:'DELETE'});
+  if (!r.ok){
+    const d = await r.json().catch(() => ({}));
+    alert(d.detail || `Could not remove ${machine}`);
+    return;
+  }
+  loadMachines();
+}
+
 function renderMachineCards(machines){
   const el = document.getElementById('machine-cards');
   if (!machines.length){ el.innerHTML = '<div class="empty">No machines reporting. Deploy rialu-agent to get started.</div>'; return; }
@@ -1972,6 +1983,7 @@ function renderMachineCards(machines){
         </div>`).join('')}</div>` : ''}
       <div style="margin-top:8px;display:flex;gap:5px">
         <button class="btn" onclick="openTerminalFor('${esc(m.machine_name)}')" style="font-size:10px">Terminal</button>
+        ${offline ? `<button class="btn" onclick="removeMachine('${esc(m.machine_name)}')" style="font-size:10px">Remove</button>` : ''}
       </div>
       ${offline ? `<div class="m-lastseen">last seen ${hb.text}</div>` : ''}
     </div>`;
