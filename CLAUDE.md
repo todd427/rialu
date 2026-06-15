@@ -18,7 +18,7 @@ The vault (keys, logins, and the Secrets Wizard) has been fully extracted to **T
 # Run dev server (port 8080)
 python main.py
 
-# Run all tests (231 collected)
+# Run all tests (265 collected across 28 files)
 RIALU_TEST=1 python -m pytest tests/ -v
 
 # Run a single test file
@@ -29,6 +29,9 @@ fly deploy
 
 # Seed database (idempotent)
 python seed_config.py
+
+# Compute portfolio divergence flags in-process against the shared DB (no HTTP)
+cli/rialu divergence-run [--window-days N]
 ```
 
 ## Architecture
@@ -40,6 +43,7 @@ python seed_config.py
 **Routers** (`routers/`): Each maps to an API domain, all mounted under `/api/`:
 - `projects.py` — CRUD + milestones + sessions + per-project dashboard + constellation grouping + status refresh
 - `commits.py` — Commit activity endpoints (per-project + global) with CSV export, parsed from `[auto-git]` worklog rows
+- `divergence.py` — Portfolio divergence digest: the inverse of `milestone_review.py`. Flags *absence* of progress vs. declared status (stale-active, no-trigger). Reads ONLY local `projects`/`worklog` tables, makes NO external calls (so a scheduled run is reliable). Core logic in `run_divergence()`, shared by the HTTP route and the `cli/rialu divergence-run` CLI
 - `worklog.py` — Work sessions with LOC tracking + stats + GitHub LOC refresh
 - `deployments.py` — Cached deploy status from Fly.io and Railway pollers
 - `budget.py` — Platform costs (EUR) + API registry + billing refresh + cost-by-project
@@ -67,6 +71,8 @@ python seed_config.py
 - GitHub LOC (6hr) — commit stats per project
 - GitHub repos (6hr) — cache all user repos, detect untracked
 - Project status sync (2min) — promotes status based on deploys/commits/milestones (never demotes), updates `runtime` field from deploy cache
+
+The divergence digest is **not** an APScheduler job — it's triggered externally (`scripts/divergence_selfcall.py` POSTs `/api/divergence/run`) so it can run on a weekly cron independent of the app process.
 
 **Frontend:** Single-file vanilla JS SPA (`static/index.html`). Tabs: Projects (cards/list/kanban/timeline views), Work log, Machines, Deployments, Sentinel, Budget & APIs, Mnemos, MCP. 4 themes (dark/light/slate/terminal). Chart.js 4.x from CDN for commit activity graphs. Also serves as backend for Faire (Tauri desktop client) via WebSocket + REST.
 
