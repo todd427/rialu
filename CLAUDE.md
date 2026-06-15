@@ -89,7 +89,7 @@ python seed_config.py
 
 (`RIALU_VAULT_KEY` is no longer used — safe to `fly secrets unset RIALU_VAULT_KEY` after the vault-removal deploy.)
 
-## Current State (2026-03-29)
+## Current State (2026-06-15)
 
 - **Phase 1-2:** Complete (foundation, pollers, SPA, machine agents)
 - **Phase 3:** Complete. Anthropic usage, MCP status, Sentinel (stats + recent events), GitHub LOC, project dashboard, milestone auto-review, budget refresh, Timeline (date-based gantt), Kanban (drag-drop), API cost attribution per project
@@ -99,6 +99,7 @@ python seed_config.py
 - **MCP connector:** Live on Claude.ai at `rialu.fly.dev/mcp` — project tools (list/get/create/update). Vault tools removed 2026-06-03 (migrated to Taisce).
 - **Auto status sync:** Projects promote (research→development→deployed→shipped) based on deploy health, git commits, and milestone completion. Never demotes. Separate `runtime` field tracks infrastructure state (running/sleeping/stopped/deploying/error).
 - **Commit activity:** Per-project and global commit graphs (Chart.js) with LOC overlay, 30d/90d/1y range, CSV export. Cards layout default with `commits_7d` count.
+- **Machine fleet:** rialu-agent runs on **Daisy** and **Iris** (systemd, WebSocket to `wss://rialu.ie/ws/agent` through Cloudflare Access via a service token). Heartbeats report CPU/RAM/GPU, project processes, and per-repo git state. The auto-git worklog ingested from agent commits **merges by hash across machines** (union, never clobber; minutes = max of each reporter), so multiple machines reporting a shared repo no longer overwrite each other. Down machines render as dimmed "last seen" cards after 5 min; a **Remove** button (`DELETE /api/machines/{name}`, refused while WS-connected) clears retired ones.
 - **CSV exports:** All major data types downloadable from the SPA
 - **Security:** `rialu.fly.dev` locked down, MCP self-authenticating via OAuth 2.1
-- **Tests:** 231 collected across 26 test files
+- **Tests:** 265 collected across 28 test files
