@@ -94,6 +94,20 @@ manual steps above). The script is machine-agnostic.
 
 Everything else (hub URL, agent key, CF token, unit) is identical.
 
+### Lava deviates: repos live under `/home/todd/dev`
+
+Lava has **no `/home/Projects`** — the repo (and all of Todd's other repos) live
+under `/home/todd/dev`. So Lava is **not** a verbatim copy of the recipe above:
+
+- Repo at `/home/todd/dev/rialu` (no second clone under `/home/Projects`).
+- `rialu-agent.service` `WorkingDirectory` + `ExecStart` edited to
+  `/home/todd/dev/rialu/agent` instead of `/home/Projects/rialu/agent`.
+- `~/.rialu-agent.json` → `"repo_dirs": ["/home/todd/dev"]`.
+
+Everything else (venv at `~/agentEnv`, `/etc/rialu-agent.env`, secrets, install
+steps) is unchanged. If a box already keeps its repos under `/home/Projects`,
+follow the recipe verbatim; only edit these three paths when they don't.
+
 ## Notes
 
 - The agent reports **all** git repos under `/home/Projects`, not just the
