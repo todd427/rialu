@@ -48,6 +48,7 @@ cli/rialu divergence-run [--window-days N]
 - `deployments.py` — Cached deploy status from Fly.io and Railway pollers
 - `budget.py` — Platform costs (EUR) + API registry + billing refresh + cost-by-project
 - `usage.py` — Anthropic token usage (CSV import from console.anthropic.com)
+- `spend.py` — Suim spend-rollup receiver: `POST /api/spend` upserts per-project Claude spend on `rollup_key` (idempotent, accepts unknown/NULL slugs); `GET /api/spend/summary` exposes recent $/hr vs `projects.cost_limit_hr` (`over_budget` flag — Rialú computes the breach, services enforce). Stored in `project_spend`. Complements (not replaces) `usage.py`. See `docs/suim-spend-rollup-receiver-prd.md`
 - `sentinel.py` — Threat intelligence dashboard (proxies Sentinel API + recent events)
 - `mcp_status.py` — Health checker for all 4 MCP connectors
 - `milestone_review.py` — Automated milestone verification against GitHub repos

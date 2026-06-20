@@ -346,6 +346,23 @@ MIGRATIONS = [
     "ALTER TABLE projects ADD COLUMN health_checked_at TEXT",
     # 023 — revisit trigger (enables clean no-trigger detection)
     "ALTER TABLE projects ADD COLUMN revisit_trigger TEXT",
+    # 024 — Suim per-project spend rollups (see docs/suim-spend-rollup-receiver-prd.md).
+    # rollup_key == project_id|window_start|window_end is the idempotency key: Suim
+    # re-sends after a lost ack, so the receiver upserts on it (never double-counts).
+    # project_id is a projects.slug or NULL (unresolved); store cost_usd as Suim sends.
+    """
+    CREATE TABLE IF NOT EXISTS project_spend (
+        rollup_key    TEXT PRIMARY KEY,
+        project_id    TEXT,
+        window_start  TEXT NOT NULL,
+        window_end    TEXT NOT NULL,
+        cost_usd      REAL NOT NULL,
+        input_tokens  INTEGER NOT NULL,
+        output_tokens INTEGER NOT NULL,
+        received_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_spend_project ON project_spend(project_id, window_start)",
 ]
 
 

@@ -25,7 +25,7 @@ from starlette.routing import Mount
 
 from db import init_db
 from poller import setup_scheduler
-from routers import projects, worklog, deployments, budget, machines, mcp_status, usage, sentinel, milestone_review, mnemos, github, export, decisions, agents, commits, divergence
+from routers import projects, worklog, deployments, budget, machines, mcp_status, usage, sentinel, milestone_review, mnemos, github, export, decisions, agents, commits, divergence, spend
 from ws_hub import hub
 from faire_hub import faire_hub
 import mcp_server as _mcp
@@ -118,6 +118,7 @@ app.include_router(decisions.router)
 app.include_router(agents.router)
 app.include_router(commits.router)
 app.include_router(divergence.router)
+app.include_router(spend.router)
 
 
 # ── WebSocket routes ─────────────────────────────────────────────────────────
