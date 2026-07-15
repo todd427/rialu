@@ -348,10 +348,16 @@ def _slugify(name: str) -> str:
 
 @mcp.tool()
 def list_projects() -> list[dict]:
-    """List all Rialú projects with name, status, phase, and platform."""
+    """List all Rialú projects with name, status, phase, and platform.
+
+    Lean projection: the free-text ``notes`` column is deliberately excluded so
+    the response stays small enough not to truncate in MCP clients (a bloated
+    row shape once caused this tool to silently under-report the project count).
+    Full ``notes`` is available per-record via ``get_project(project_id)``.
+    """
     with db() as conn:
         rows = conn.execute(
-            "SELECT id, name, slug, phase, status, platform, repo_url, site_url, machine, notes, updated_at "
+            "SELECT id, name, slug, phase, status, platform, repo_url, site_url, machine, updated_at "
             "FROM projects ORDER BY updated_at DESC"
         ).fetchall()
     return [row_to_dict(r) for r in rows]
