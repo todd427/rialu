@@ -49,6 +49,7 @@ import re
 import secrets as secrets_mod
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Literal, Optional
 
 from pydantic import AnyHttpUrl
@@ -78,11 +79,28 @@ _SCOPE = "mcp"
 _TOKEN_LIFETIME = 30 * 24 * 3600  # 30 days
 _CODE_LIFETIME = 600  # 10 minutes
 
-ALLOWED_REDIRECT_DOMAINS = ["claude.ai", "localhost", "127.0.0.1"]
+# Hosts allowed to RECEIVE an authorization code. EXACT hostname, never substring.
+# On a single-owner auto-approve/open-DCR server the redirect allowlist is the WHOLE
+# security boundary — substring matching accepted claude.ai.evil.example /
+# evil?x=claude.ai / claude.ai@evil.example etc. (full token-mint bypass).
+ALLOWED_REDIRECT_HOSTS = {"claude.ai"}
+
+# localhost is NOT a default: requester-controlled ⇒ a free token. Opt in via
+# MCP_EXTRA_REDIRECT_HOSTS (comma-separated) for local dev only.
+_extra = os.environ.get("MCP_EXTRA_REDIRECT_HOSTS", "")
+if _extra:
+    ALLOWED_REDIRECT_HOSTS |= {h.strip().lower() for h in _extra.split(",") if h.strip()}
 
 
 def _redirect_allowed(uri: str) -> bool:
-    return any(domain in uri for domain in ALLOWED_REDIRECT_DOMAINS)
+    try:
+        p = urlparse(uri)
+    except Exception:
+        return False
+    if p.scheme not in ("https", "http"):
+        return False
+    host = (p.hostname or "").lower()
+    return any(host == a or host.endswith("." + a) for a in ALLOWED_REDIRECT_HOSTS)
 
 
 # ── OAuth Provider ───────────────────────────────────────────────────────────
