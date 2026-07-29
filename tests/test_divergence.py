@@ -15,8 +15,10 @@ from db import init_db, db
 client = TestClient(app)
 
 
-def _project(name, status="development", notes=None, revisit_trigger=None):
-    r = client.post("/api/projects", json={"name": name, "status": status, "notes": notes})
+def _project(name, status="development", notes=None, revisit_trigger=None, phase=None):
+    r = client.post(
+        "/api/projects", json={"name": name, "status": status, "notes": notes, "phase": phase}
+    )
     assert r.status_code == 201
     pid = r.json()["id"]
     if revisit_trigger is not None:
@@ -218,6 +220,236 @@ def test_window_days_override():
     assert _flag_for(r30, pid) == "healthy"
     r10 = client.post("/api/divergence/run", params={"window_days": 10}).json()["results"]
     assert _flag_for(r10, pid) == "stale-active"
+
+
+# ── narrative staleness — the second, orthogonal axis ─────────────────────────
+#
+# The bug this section exists to prevent: narrative_written_at must measure when
+# the PROSE was authored, not when the row was last touched. Anything that moves
+# it on an incidental edit makes stale prose look fresh, silently.
+
+def _set_narrative(pid, day_offset):
+    """Backdate narrative_written_at so 'unchanged' is provably distinguishable."""
+    d = (date.today() - timedelta(days=day_offset)).isoformat()
+    with db() as conn:
+        conn.execute(
+            "UPDATE projects SET narrative_written_at = ? WHERE id = ?", (f"{d} 12:00:00", pid)
+        )
+
+
+def _narrative_at(pid):
+    with db() as conn:
+        return conn.execute(
+            "SELECT narrative_written_at FROM projects WHERE id = ?", (pid,)
+        ).fetchone()["narrative_written_at"]
+
+
+def _many_commits(pid, n, day_offset=1):
+    """One [auto-git] worklog row carrying n pipe-delimited commits."""
+    _commits(pid, day_offset=day_offset,
+             notes="[auto-git] " + " | ".join(f"h{i} feat: change {i}" for i in range(n)))
+
+
+def _narrative_flag_for(results, pid):
+    return next(r["narrative_flag"] for r in results if r["project_id"] == pid)
+
+
+def test_narrative_written_at_set_on_create_with_prose():
+    init_db()
+    pid = _project("Rian", phase="phase-1 (scaffold)")
+    assert _narrative_at(pid)
+
+
+def test_narrative_written_at_null_when_created_without_prose():
+    init_db()
+    pid = _project("Bare")
+    assert _narrative_at(pid) is None
+
+
+def test_phase_change_redates_narrative():
+    init_db()
+    pid = _project("Rian", phase="phase-1 (scaffold)")
+    _set_narrative(pid, 40)
+    before = _narrative_at(pid)
+    client.put(f"/api/projects/{pid}", json={"phase": "phase-5 (shipped)"})
+    assert _narrative_at(pid) != before
+
+
+def test_notes_change_redates_narrative():
+    init_db()
+    pid = _project("Uire", notes="manifold empty, 0 scored")
+    _set_narrative(pid, 40)
+    before = _narrative_at(pid)
+    client.put(f"/api/projects/{pid}", json={"notes": "73-paper manifold, publishing nightly"})
+    assert _narrative_at(pid) != before
+
+
+def test_identical_phase_does_not_redate_narrative():
+    init_db()
+    pid = _project("Same", phase="phase-1")
+    _set_narrative(pid, 40)
+    before = _narrative_at(pid)
+    client.put(f"/api/projects/{pid}", json={"phase": "phase-1"})  # present, unchanged
+    assert _narrative_at(pid) == before
+
+
+def test_unrelated_field_does_not_redate_narrative():
+    """The regression that matters: updated_at moves, the narrative date does not."""
+    init_db()
+    pid = _project("Incidental", phase="phase-1")
+    _set_narrative(pid, 40)
+    before = _narrative_at(pid)
+    client.put(f"/api/projects/{pid}", json={"machine": "daisy", "platform": "fly.io"})
+    assert _narrative_at(pid) == before
+
+
+def test_mcp_update_path_honours_the_same_guard():
+    init_db()
+    from mcp_server import update_project as mcp_update
+    pid = _project("ViaMcp", phase="phase-1")
+    _set_narrative(pid, 40)
+    before = _narrative_at(pid)
+
+    mcp_update(project_id=pid, status="deployed")          # unrelated field
+    assert _narrative_at(pid) == before
+    mcp_update(project_id=pid, phase="phase-1")            # present, unchanged
+    assert _narrative_at(pid) == before
+    mcp_update(project_id=pid, phase="phase-5 (shipped)")  # real change
+    assert _narrative_at(pid) != before
+
+
+def test_narrative_stale_above_threshold():
+    init_db()
+    pid = _project("Rian", phase="phase-1 (scaffold)")
+    _set_narrative(pid, 40)
+    _many_commits(pid, 31)  # 31 pipe-delimited commits in one row, dated yesterday
+    results = client.post("/api/divergence/run").json()["results"]
+    assert _narrative_flag_for(results, pid) == "narrative-stale"
+
+
+def test_below_threshold_is_not_narrative_stale():
+    init_db()
+    pid = _project("Fresh", phase="phase-1")
+    _set_narrative(pid, 40)
+    _many_commits(pid, 4)
+    results = client.post("/api/divergence/run").json()["results"]
+    assert _narrative_flag_for(results, pid) is None
+
+
+def test_narrative_stale_is_orthogonal_to_health():
+    """Rian's case: committing steadily (healthy) while the phase string lies."""
+    init_db()
+    pid = _project("Rian", status="running", phase="phase-1 (scaffold)")
+    _set_narrative(pid, 40)
+    _many_commits(pid, 31)
+    results = client.post("/api/divergence/run").json()["results"]
+    assert _flag_for(results, pid) == "healthy"
+    assert _narrative_flag_for(results, pid) == "narrative-stale"
+    with db() as conn:
+        row = conn.execute(
+            "SELECT health, narrative_health FROM projects WHERE id = ?", (pid,)
+        ).fetchone()
+    assert row["health"] == "healthy"
+    assert row["narrative_health"] == "narrative-stale"
+
+
+def test_null_narrative_written_at_never_flags():
+    """Absence of an authoring date is not staleness."""
+    init_db()
+    pid = _project("Undated", phase="phase-1")
+    with db() as conn:
+        conn.execute("UPDATE projects SET narrative_written_at = NULL WHERE id = ?", (pid,))
+    _many_commits(pid, 40)
+    results = client.post("/api/divergence/run").json()["results"]
+    assert _narrative_flag_for(results, pid) is None
+
+
+def test_project_without_prose_never_flags():
+    """No phase and no notes: there is no narrative to be stale."""
+    init_db()
+    pid = _project("Wordless")
+    _set_narrative(pid, 40)  # e.g. a migration backfill from updated_at
+    _many_commits(pid, 40)
+    results = client.post("/api/divergence/run").json()["results"]
+    assert _narrative_flag_for(results, pid) is None
+
+
+def test_narrative_counting_parses_pipe_delimited_commits():
+    """3 commits in one worklog row count as 3, not 1 (reuses commits.py parsing)."""
+    init_db()
+    pid = _project("Counted", phase="phase-1")
+    _set_narrative(pid, 40)
+    _many_commits(pid, 3)
+    results = client.post("/api/divergence/run").json()["results"]
+    assert next(r["commits_since_narrative"] for r in results if r["project_id"] == pid) == 3
+
+
+def test_commits_before_the_narrative_date_do_not_count():
+    init_db()
+    pid = _project("Prior", phase="phase-1")
+    _set_narrative(pid, 10)
+    _many_commits(pid, 20, day_offset=30)  # all landed before the prose was written
+    results = client.post("/api/divergence/run").json()["results"]
+    assert next(r["commits_since_narrative"] for r in results if r["project_id"] == pid) == 0
+    assert _narrative_flag_for(results, pid) is None
+
+
+def test_narrative_threshold_override():
+    init_db()
+    pid = _project("Tunable", phase="phase-1")
+    _set_narrative(pid, 40)
+    _many_commits(pid, 10)  # under the default 15, over an explicit 5
+    default = client.post("/api/divergence/run").json()["results"]
+    assert _narrative_flag_for(default, pid) is None
+    tuned = client.post("/api/divergence/run", params={"narrative_threshold": 5}).json()["results"]
+    assert _narrative_flag_for(tuned, pid) == "narrative-stale"
+
+
+def test_narrative_log_row_does_not_hijack_health_detail():
+    """Both axes share divergence_log; the health pill must keep its own detail."""
+    init_db()
+    pid = _project("Both", status="running", phase="phase-1")
+    _set_narrative(pid, 40)
+    _many_commits(pid, 31)
+    client.post("/api/divergence/run")
+
+    flags = {r["flag"] for r in client.get("/api/divergence/log").json()}
+    assert flags == {"healthy", "narrative-stale"}
+
+    entry = next(e for e in client.get("/api/divergence/latest").json()["projects"]
+                 if e["project_id"] == pid)
+    assert "commits in 30d" in entry["health_detail"]        # not the narrative text
+    assert "since phase/notes written" in entry["narrative_detail"]
+    assert entry["narrative_health"] == "narrative-stale"
+    assert entry["commits_since_narrative"] == 31
+
+
+def test_commits_since_narrative_on_projects_api():
+    init_db()
+    pid = _project("Exposed", phase="phase-1")
+    _set_narrative(pid, 40)
+    _many_commits(pid, 31)
+    p = next(x for x in client.get("/api/projects").json() if x["id"] == pid)
+    assert p["commits_since_narrative"] == 31
+
+
+def test_mcp_list_projects_carries_commits_since_narrative():
+    """The actual deliverable: one int per row, and the count still doesn't truncate."""
+    init_db()
+    from mcp_server import list_projects as mcp_list
+    pid = _project("Rian", phase="phase-1 (scaffold)")
+    _set_narrative(pid, 40)
+    _many_commits(pid, 31)
+    for i in range(30):
+        _project(f"Filler {i}", notes="x" * 4000)
+
+    listed = mcp_list()
+    with db() as conn:
+        db_count = conn.execute("SELECT COUNT(*) AS c FROM projects").fetchone()["c"]
+    assert len(listed) == db_count
+    assert all("commits_since_narrative" in row for row in listed)
+    assert all("notes" not in row for row in listed)
+    assert next(r for r in listed if r["id"] == pid)["commits_since_narrative"] == 31
 
 
 def test_health_exposed_on_projects_list():

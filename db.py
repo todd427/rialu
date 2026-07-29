@@ -363,6 +363,19 @@ MIGRATIONS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_spend_project ON project_spend(project_id, window_start)",
+    # 025 — narrative staleness (see docs/cc-brief-narrative-staleness.md).
+    # narrative_written_at is when the free-text phase/notes were last *authored*.
+    # It is deliberately NOT updated_at: updated_at moves on any field change, so
+    # an incidental edit silently resets the apparent freshness of prose nobody
+    # re-read. Written only on a real value change to phase/notes.
+    # narrative_health holds the second, orthogonal flag ('narrative-stale'|NULL) —
+    # a project can be healthy on activity and narrative-stale at the same time.
+    "ALTER TABLE projects ADD COLUMN narrative_written_at TEXT",
+    "ALTER TABLE projects ADD COLUMN narrative_health TEXT",
+    # Backfill: updated_at is the only defensible starting point. It is wrong for
+    # rows touched since their prose was written, and self-corrects on the next
+    # real narrative edit. Guarded on NULL, so it never overwrites a real value.
+    "UPDATE projects SET narrative_written_at = updated_at WHERE narrative_written_at IS NULL",
 ]
 
 

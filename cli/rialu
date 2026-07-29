@@ -3,9 +3,12 @@
 rialu — CLI for Rialú.
 
 Usage:
-  rialu divergence-run [--window-days N]
+  rialu divergence-run [--window-days N] [--narrative-threshold M]
                                       Compute portfolio divergence flags in-process
                                       against the shared DB (no HTTP). Default N=30.
+                                      M (default 15) is the commits-since-prose-was-
+                                      written level at which phase/notes are flagged
+                                      narrative-stale — an axis separate from health.
 
 (The key-vault commands were removed when the vault was extracted to Taisce —
 taisce.irish is now the sole source of truth for secrets.)
@@ -17,7 +20,7 @@ import sys
 
 # ── Commands ──────────────────────────────────────────────────────────────────
 
-def cmd_divergence_run(window_days: int = 30):
+def cmd_divergence_run(window_days: int = 30, narrative_threshold: int = 15):
     """Run the portfolio divergence digest in-process against the shared DB.
 
     Imports run_divergence() directly — no HTTP self-call — so the scheduled Fly
@@ -29,13 +32,17 @@ def cmd_divergence_run(window_days: int = 30):
         sys.path.insert(0, repo_root)
     from routers.divergence import run_divergence
 
-    summary = run_divergence(window_days=window_days)
-    print(f"checked {summary['checked']} projects (window={summary['window_days']}d)")
+    summary = run_divergence(window_days=window_days, narrative_threshold=narrative_threshold)
+    print(f"checked {summary['checked']} projects (window={summary['window_days']}d, "
+          f"narrative threshold={summary['narrative_threshold']})")
     for flag, n in sorted(summary["flags"].items()):
-        print(f"  {flag:14} {n}")
+        print(f"  {flag:16} {n}")
+    print(f"  {'narrative-stale':16} {summary['narrative_stale']}  (second axis)")
     for r in summary["results"]:
         if r["flag"] in ("stale-active", "no-trigger"):
             print(f"  ⚠ {r['project']}: {r['flag']} — {r['detail']}")
+        if r["narrative_flag"]:
+            print(f"  ✎ {r['project']}: {r['narrative_flag']} — {r['narrative_detail']}")
 
 
 # ── Arg parsing ───────────────────────────────────────────────────────────────
@@ -63,7 +70,9 @@ def main():
     if cmd == "divergence-run":
         window_str = _option(args, "--window-days") or _option(args, "--window")
         window_days = int(window_str) if window_str else 30
-        cmd_divergence_run(window_days=window_days)
+        thresh_str = _option(args, "--narrative-threshold")
+        narrative_threshold = int(thresh_str) if thresh_str else 15
+        cmd_divergence_run(window_days=window_days, narrative_threshold=narrative_threshold)
 
     else:
         print(f"unknown command: {cmd}\nRun 'rialu --help' for usage.", file=sys.stderr)

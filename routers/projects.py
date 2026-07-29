@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from fastapi import BackgroundTasks
 from db import db, row_to_dict
+from routers.divergence import NARRATIVE_STALE, commits_since_narrative, narrative_changed
 
 
 def _broadcast_project(project_id: int, data: dict):
@@ -128,15 +129,22 @@ def list_projects(q: Optional[str] = None):
               AND notes LIKE '[auto-git]%'
             """
         ).fetchall()
-        # health_detail: detail string from each project's most recent divergence run
+        # health_detail: detail string from each project's most recent divergence
+        # run. Narrative rows share the log table but belong to the other axis —
+        # excluded so they don't hijack the health pill's tooltip.
         detail_rows = conn.execute(
             """
             SELECT d.project_id, d.detail
             FROM divergence_log d
-            JOIN (SELECT project_id, MAX(id) AS mid FROM divergence_log GROUP BY project_id) m
+            JOIN (SELECT project_id, MAX(id) AS mid FROM divergence_log
+                  WHERE flag != ? GROUP BY project_id) m
               ON d.id = m.mid
-            """
+            """,
+            (NARRATIVE_STALE,),
         ).fetchall()
+        # commits_since_narrative: how far the code has moved past the prose.
+        # Computed live (the flag comes from the weekly run; the number shouldn't lag).
+        narrative_counts = commits_since_narrative(conn)
     commits_by_project: dict[int, int] = {}
     for wl in wl_rows:
         body = wl["notes"].replace("[auto-git] ", "", 1)
@@ -147,6 +155,7 @@ def list_projects(q: Optional[str] = None):
     for p in projects:
         p["commits_7d"] = commits_by_project.get(p["id"], 0)
         p["health_detail"] = detail_by_project.get(p["id"])
+        p["commits_since_narrative"] = narrative_counts.get(p["id"], 0)
     return projects
 
 
@@ -160,9 +169,12 @@ def create_project(p: ProjectIn):
         ).fetchone()
         if existing:
             slug = f"{slug}-{existing['id']}"
+        # Creating with prose IS authoring it; with no prose, narrative_written_at
+        # stays NULL so the project is never flagged for text that doesn't exist.
+        written = "datetime('now')" if (p.phase or p.notes) else "NULL"
         cur = conn.execute(
-            """INSERT INTO projects (name, slug, phase, status, notes, repo_url, site_url, machine, platform, constellation)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            f"""INSERT INTO projects (name, slug, phase, status, notes, repo_url, site_url, machine, platform, constellation, narrative_written_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {written})""",
             (p.name, slug, p.phase, p.status, p.notes, p.repo_url, p.site_url, p.machine, p.platform, p.constellation),
         )
         row = conn.execute(
@@ -197,6 +209,11 @@ def update_project(project_id: int, p: ProjectUpdate):
     values = [v for k, v in fields.items() if k != "updated_at"]
     values.append(project_id)
     with db() as conn:
+        # updated_at moves on any edit, so it cannot measure prose age. Re-date the
+        # narrative only when phase/notes actually change value — not when the key
+        # is merely present, and never on an unrelated field change.
+        if narrative_changed(conn, project_id, fields):
+            set_clause += ", narrative_written_at = datetime('now')"
         conn.execute(
             f"UPDATE projects SET {set_clause} WHERE id = ?", values
         )

@@ -18,7 +18,7 @@ The vault (keys, logins, and the Secrets Wizard) has been fully extracted to **T
 # Run dev server (port 8080)
 python main.py
 
-# Run all tests (265 collected across 28 files)
+# Run all tests (293 collected across 28 files)
 RIALU_TEST=1 python -m pytest tests/ -v
 
 # Run a single test file
@@ -43,7 +43,7 @@ cli/rialu divergence-run [--window-days N]
 **Routers** (`routers/`): Each maps to an API domain, all mounted under `/api/`:
 - `projects.py` — CRUD + milestones + sessions + per-project dashboard + constellation grouping + status refresh
 - `commits.py` — Commit activity endpoints (per-project + global) with CSV export, parsed from `[auto-git]` worklog rows
-- `divergence.py` — Portfolio divergence digest: the inverse of `milestone_review.py`. Flags *absence* of progress vs. declared status (stale-active, no-trigger). Reads ONLY local `projects`/`worklog` tables, makes NO external calls (so a scheduled run is reliable). Core logic in `run_divergence()`, shared by the HTTP route and the `cli/rialu divergence-run` CLI
+- `divergence.py` — Portfolio divergence digest: the inverse of `milestone_review.py`. Flags *absence* of progress vs. declared status (stale-active, no-trigger). Reads ONLY local `projects`/`worklog` tables, makes NO external calls (so a scheduled run is reliable). Core logic in `run_divergence()`, shared by the HTTP route and the `cli/rialu divergence-run` CLI. Also owns the second, **orthogonal** axis — `narrative-stale` (`projects.narrative_health`): commits landed since the free-text `phase`/`notes` were authored, above `narrative_threshold` (default 15). `health` is status-vs-activity; this is narrative-vs-activity, and a project can be `healthy` and `narrative-stale` at once. See `docs/cc-brief-narrative-staleness.md`
 - `worklog.py` — Work sessions with LOC tracking + stats + GitHub LOC refresh
 - `deployments.py` — Cached deploy status from Fly.io and Railway pollers
 - `budget.py` — Platform costs (EUR) + API registry + billing refresh + cost-by-project
@@ -107,6 +107,7 @@ The divergence digest is **not** an APScheduler job — it's triggered externall
 - **Auto status sync:** Projects promote (research→development→deployed→shipped) based on deploy health, git commits, and milestone completion. Never demotes. Separate `runtime` field tracks infrastructure state (running/sleeping/stopped/deploying/error).
 - **Commit activity:** Per-project and global commit graphs (Chart.js) with LOC overlay, 30d/90d/1y range, CSV export. Cards layout default with `commits_7d` count.
 - **Machine fleet:** rialu-agent runs on **Daisy**, **Iris**, and **Lava** (systemd, WebSocket to `wss://rialu.ie/ws/agent` through Cloudflare Access via a service token). Lava is the first member running from `/home/todd/dev/rialu` rather than `/home/Projects/rialu` — its unit paths and `repo_dirs` are edited accordingly (see `agent/ADDING-A-MACHINE.md`). Heartbeats report CPU/RAM/GPU, project processes, and per-repo git state. The auto-git worklog ingested from agent commits **merges by hash across machines** (union, never clobber; minutes = max of each reporter), so multiple machines reporting a shared repo no longer overwrite each other. Down machines render as dimmed "last seen" cards after 5 min; a **Remove** button (`DELETE /api/machines/{name}`, refused while WS-connected) clears retired ones.
+- **Narrative staleness:** `narrative_written_at` records when `phase`/`notes` were last *authored* — written only on a real value change (never on an incidental edit, which is why `updated_at` can't be used). `commits_since_narrative` is computed live from `worklog` and returned by `GET /api/projects`, `/api/divergence/latest`, and the MCP `list_projects` projection; the card annotates it next to the phase text.
 - **CSV exports:** All major data types downloadable from the SPA
 - **Security:** `rialu.fly.dev` locked down, MCP self-authenticating via OAuth 2.1
-- **Tests:** 265 collected across 28 test files
+- **Tests:** 293 collected across 28 test files (6 pre-existing failures in `test_usage.py`/`test_export.py` — the fixture CSV is dated outside the query window)

@@ -67,6 +67,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from db import db, row_to_dict
+from routers.divergence import commits_since_narrative, narrative_changed
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
@@ -354,13 +355,23 @@ def list_projects() -> list[dict]:
     the response stays small enough not to truncate in MCP clients (a bloated
     row shape once caused this tool to silently under-report the project count).
     Full ``notes`` is available per-record via ``get_project(project_id)``.
+
+    ``commits_since_narrative`` is how many commits have landed since ``phase``
+    (and ``notes``) were last authored. It is the discount rate on the prose: a
+    high number means the record reads as current but the code has moved on, so
+    open the repo rather than trusting the phase string. One int per row — no
+    material cost to the truncation budget that motivated the lean projection.
     """
     with db() as conn:
         rows = conn.execute(
             "SELECT id, name, slug, phase, status, platform, repo_url, site_url, machine, updated_at "
             "FROM projects ORDER BY updated_at DESC"
         ).fetchall()
-    return [row_to_dict(r) for r in rows]
+        narrative_counts = commits_since_narrative(conn)
+    projects = [row_to_dict(r) for r in rows]
+    for p in projects:
+        p["commits_since_narrative"] = narrative_counts.get(p["id"], 0)
+    return projects
 
 
 @mcp.tool()
@@ -401,6 +412,10 @@ def update_project(
     set_clause += ", updated_at = datetime('now')"
     values = list(fields.values()) + [project_id]
     with db() as conn:
+        # Same guard as the HTTP path: narrative_written_at tracks when the prose
+        # was authored, so it moves only on a real value change to phase/notes.
+        if narrative_changed(conn, project_id, fields):
+            set_clause += ", narrative_written_at = datetime('now')"
         conn.execute(
             f"UPDATE projects SET {set_clause} WHERE id = ?", values
         )
@@ -446,10 +461,12 @@ def create_project(
         ).fetchone()
         if existing:
             slug = f"{slug}-{existing['id']}"
+        # Creating with prose IS authoring it (see routers/projects.py).
+        written = "datetime('now')" if (phase or notes) else "NULL"
         cur = conn.execute(
-            """INSERT INTO projects
-               (name, slug, phase, status, notes, repo_url, site_url, machine, platform)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            f"""INSERT INTO projects
+               (name, slug, phase, status, notes, repo_url, site_url, machine, platform, narrative_written_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, {written})""",
             (name, slug, phase, status, notes, repo_url, site_url, machine, platform),
         )
         row = conn.execute(

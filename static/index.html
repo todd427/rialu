@@ -645,6 +645,16 @@ function statusPill(s){ return `<span class="pill ${STATUS_PILL[s]||'gray'}">${s
 // dormant-ok (the quiet-by-design majority) renders nothing to avoid noise.
 const HEALTH_PILL = { 'stale-active': ['warn','stale'], 'no-trigger': ['gray','no trigger'], 'healthy': ['ok','healthy'] };
 function healthPill(h, detail){ const m = HEALTH_PILL[h]; if(!m) return ''; return `<span class="pill ${m[0]}" title="${esc(detail||h)}">${m[1]}</span>`; }
+// Narrative staleness — the discount rate on the phase string, rendered next to it.
+// Second axis: a project can be healthy on activity and still say something dated.
+// Silent below the threshold; amber once the run has flagged it.
+function narrativeAge(p){
+  const n = p.commits_since_narrative || 0;
+  if (!n) return '';
+  const stale = p.narrative_health === 'narrative-stale';
+  const col = stale ? 'var(--warn)' : 'var(--t3)';
+  return `<span style="color:${col}" title="${n} commit${n===1?'':'s'} since this phase/notes text was written${stale?' — probably out of date' : ''}">+${n} since</span>`;
+}
 
 // ── divergence summary strip (top of Projects tab) ───────────────────────────
 let _healthFilter = '';      // '' | 'stale-active' | 'no-trigger' — drill-down filter
@@ -794,7 +804,7 @@ function _cardHtml(p){
         ${statusPill(p.status)} ${runtimeBadge(p.runtime)} ${healthPill(p.health, p.health_detail)}
       </div>
       <div class="pcard-meta">
-        ${p.phase ? `<span>${hlesc(p.phase)}</span>` : ''}
+        ${p.phase ? `<span>${hlesc(p.phase)}</span>${narrativeAge(p)}` : ''}
         ${p.platform ? `<span>${hlesc(p.platform)}</span>` : ''}
         ${p.machine ? `<span>${hlesc(p.machine)}</span>` : ''}
         ${p.constellation ? `<span style="color:var(--pur)">${hlesc(p.constellation)}</span>` : ''}
