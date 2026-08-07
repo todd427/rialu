@@ -2,26 +2,40 @@
 # setup-agent-taisce.sh — bootstrap rialu-agent on a new machine, pulling
 # secrets from taisce's service reveal endpoint instead of hand-pasting them.
 #
-# One-time prerequisite (run on the taisce box, e.g. from Daisy):
-#   fly ssh console -a taisce -C "python service_token_cli.py create <machine> \
+# One-time prerequisite (from any box with flyctl):
+#   fly ssh console -a taisce -C "python service_token_cli.py create <caller> \
 #     --can-read 'rialu-agent-key,cf-access-client-id,cf-access-client-secret'"
-# Store the printed token on the new machine as ~/.taisce-service.token
-# (chmod 600), or export TAISCE_SERVICE_TOKEN, or let this script prompt.
+# <caller> is either the machine name (finer audit trail, revoke per box) or
+# a shared 'fleet' token (mint once, reuse on every machine). Store the printed
+# token on the new machine as ~/.taisce-service.token (chmod 600), or export
+# TAISCE_SERVICE_TOKEN, or let this script prompt.
 #
-# Usage:  ./setup-agent-taisce.sh [machine-name]
-#   machine-name defaults to lowercase hostname.
+# Usage (run as todd, NOT with sudo — the script sudos where needed):
+#   ./setup-agent-taisce.sh [machine-name]
+#   machine-name defaults to lowercase short hostname.
 #
-# Idempotent: safe to re-run. Never clobbers an existing ~/.rialu-agent.json.
+# Idempotent: safe to re-run; re-runs rewrite /etc/rialu-agent.env and restart
+# the agent. Never clobbers an existing ~/.rialu-agent.json.
 
 set -euo pipefail
+umask 077
+
+if [[ ${EUID} -eq 0 ]]; then
+  echo "run as todd, not root — the unit runs as User=todd" >&2
+  exit 1
+fi
 
 TAISCE_URL="${TAISCE_URL:-https://taisce.fly.dev}"
-MACHINE_NAME="${1:-$(hostname | tr '[:upper:]' '[:lower:]')}"
+MACHINE_NAME="${1:-$(hostname -s | tr '[:upper:]' '[:lower:]')}"
 AGENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE=/etc/rialu-agent.env
 UNIT_SRC="$AGENT_DIR/rialu-agent.service"
 UNIT_DST=/etc/systemd/system/rialu-agent.service
 CFG="$HOME/.rialu-agent.json"
+
+for cmd in curl git python3 systemctl; do
+  command -v "$cmd" >/dev/null 2>&1 || { echo "missing: $cmd" >&2; exit 1; }
+done
 
 # ── service token: env var → token file → prompt ─────────────────────────────
 TOKEN="${TAISCE_SERVICE_TOKEN:-}"
@@ -33,7 +47,7 @@ if [[ -z "$TOKEN" ]]; then
 fi
 [[ -n "$TOKEN" ]] || { echo "No taisce service token — aborting." >&2; exit 1; }
 
-# ── reveal helper (POST /api/service/reveal-key, audited caller-side) ────────
+# ── reveal helper (POST /api/service/reveal-key, audited server-side) ────────
 reveal() {
   local name="$1" resp
   if ! resp=$(curl -fsS -X POST "$TAISCE_URL/api/service/reveal-key" \
@@ -90,9 +104,21 @@ echo "Installing $UNIT_DST ..."
 sed "s|/home/Projects/rialu/agent|$AGENT_DIR|g" "$UNIT_SRC" | sudo tee "$UNIT_DST" >/dev/null
 sudo systemctl daemon-reload
 sudo systemctl enable --now rialu-agent
+sudo systemctl restart rialu-agent   # re-runs pick up a rewritten env
 
-echo "Waiting for first heartbeat ..."
-sleep 5
-journalctl -u rialu-agent -n 10 --no-pager
-echo
-echo "Want: machine=$MACHINE_NAME → 'Connected and authenticated' → 'Heartbeat sent — ... repos=N'"
+# ── verify: poll up to 30s for auth instead of sleep-and-hope ────────────────
+echo "Waiting for agent to authenticate ..."
+for _ in $(seq 1 30); do
+  if journalctl -u rialu-agent --since "1 min ago" --no-pager 2>/dev/null \
+     | grep -q "Connected and authenticated"; then
+    journalctl -u rialu-agent -n 10 --no-pager
+    echo
+    echo "OK: $MACHINE_NAME is heartbeating — check the Machines tab on rialu.ie"
+    exit 0
+  fi
+  sleep 1
+done
+
+echo "Agent did not authenticate within 30s; last log lines:" >&2
+journalctl -u rialu-agent -n 20 --no-pager >&2
+exit 1
