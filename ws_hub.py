@@ -377,8 +377,16 @@ class AgentHub:
                         "cols": data.get("cols", 80),
                         "rows": data.get("rows", 24),
                     }))
+                elif pane_id:
+                    # tmux pane channel: input must go to the pane via send-keys.
+                    # (A pane channel has no PTY, so terminal_data would be dropped.)
+                    await agent_ws.send_text(json.dumps({
+                        "type": "send_keys",
+                        "pane_id": pane_id,
+                        "keys": data.get("data", ""),
+                    }))
                 else:
-                    # Forward terminal input to agent
+                    # PTY terminal channel: forward input to the pty.
                     await agent_ws.send_text(json.dumps({
                         "type": "terminal_data",
                         "channel": channel,
