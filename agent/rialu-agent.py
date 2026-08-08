@@ -418,7 +418,7 @@ def enumerate_tmux() -> list:
         # Get panes for this session
         panes_raw = _run_cmd([
             "tmux", "list-panes", "-s", "-t", sname, "-F",
-            "#{window_index}\t#{pane_index}\t#{pane_pid}\t#{pane_current_command}\t#{pane_width}\t#{pane_height}"
+            "#{window_index}\t#{pane_index}\t#{pane_pid}\t#{pane_current_command}\t#{pane_width}\t#{pane_height}\t#{pane_current_path}"
         ])
         panes = []
         if panes_raw:
@@ -435,6 +435,7 @@ def enumerate_tmux() -> list:
                     "command": pp[3],
                     "width": int(pp[4]),
                     "height": int(pp[5]),
+                    "cwd": pp[6] if len(pp) > 6 else "",
                 })
         sessions.append({
             "name": sname,
@@ -489,6 +490,7 @@ def detect_claude_sessions(tmux_sessions: list) -> list:
                     "window": pane["window"],
                     "pane": pane["pane"],
                     "pid": pane["pid"],
+                    "cwd": pane.get("cwd", ""),
                     "is_claude": True,
                     "claude_state": claude_state,
                     "last_lines": lines[-10:] if lines else [],
@@ -780,6 +782,44 @@ async def handle_action(ws, data: dict):
             if pid:
                 os.kill(int(pid), signal.SIGTERM)
                 result = f"SIGTERM sent to {pid}"
+                status = "success"
+
+        elif action_type == "start_cc_session":
+            # Launch (or reuse) a persistent interactive claude tmux session on
+            # THIS machine — the remote equivalent of Faire's local cc_session_start.
+            p = json.loads(payload) if payload else {}
+            slug = p.get("slug", "")
+            path = p.get("path", "")
+            if not slug:
+                result = "start_cc_session: missing slug"
+            else:
+                target = f"faire-{slug}"
+                exists = subprocess.run(
+                    ["tmux", "has-session", "-t", target], capture_output=True
+                ).returncode == 0
+                if not exists:
+                    args = ["tmux", "new-session", "-d", "-s", target]
+                    if path and Path(path).is_dir():
+                        args += ["-c", path]
+                    args += ["claude"]
+                    r = subprocess.run(args, capture_output=True, text=True)
+                    if r.returncode != 0:
+                        raise RuntimeError(r.stderr.strip() or "tmux new-session failed")
+                result = target
+                status = "success"
+
+        elif action_type == "stop_cc_session":
+            p = json.loads(payload) if payload else {}
+            target = p.get("target") or (f"faire-{p['slug']}" if p.get("slug") else "")
+            if not target:
+                result = "stop_cc_session: missing target/slug"
+            else:
+                r = subprocess.run(
+                    ["tmux", "kill-session", "-t", target], capture_output=True, text=True
+                )
+                if r.returncode != 0:
+                    raise RuntimeError(r.stderr.strip() or "tmux kill-session failed")
+                result = f"Stopped {target}"
                 status = "success"
 
         else:
