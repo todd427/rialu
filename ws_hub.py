@@ -52,6 +52,8 @@ class AgentHub:
         self.tmux_cache: dict[str, list] = {}
         # machine_name -> latest claude status
         self.claude_cache: dict[str, list] = {}
+        # action_id -> Future, for request/response agent actions
+        self.pending_actions: dict[str, asyncio.Future] = {}
 
     def is_connected(self, machine: str) -> bool:
         return machine in self.agents
@@ -174,6 +176,13 @@ class AgentHub:
                     }))
                 except Exception:
                     pass
+
+        elif msg_type == "action_result":
+            # Resolve a pending run_agent_action() call by its action_id.
+            aid = data.get("action_id")
+            fut = self.pending_actions.get(aid)
+            if fut and not fut.done():
+                fut.set_result(data)
 
         elif msg_type == "terminal_closed":
             channel = data.get("channel", "")
@@ -427,6 +436,33 @@ class AgentHub:
             return True
         except Exception:
             return False
+
+    async def run_agent_action(self, machine: str, action_type: str,
+                               payload: dict, timeout: float = 35.0) -> dict:
+        """Send an action to a machine's agent and await its action_result.
+
+        Returns {"status", "result"}. Raises if the agent is not connected or
+        does not reply in time.
+        """
+        if machine not in self.agents:
+            raise RuntimeError(f"agent '{machine}' not connected")
+        action_id = uuid.uuid4().hex
+        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        self.pending_actions[action_id] = fut
+        try:
+            sent = await self.send_to_agent(machine, {
+                "type": "action",
+                "action_type": action_type,
+                "payload": json.dumps(payload),
+                "action_id": action_id,
+            })
+            if not sent:
+                raise RuntimeError(f"failed to send action to '{machine}'")
+            result = await asyncio.wait_for(fut, timeout=timeout)
+            return {"status": result.get("status", "error"),
+                    "result": result.get("result", "")}
+        finally:
+            self.pending_actions.pop(action_id, None)
 
     async def request_tmux_list(self, machine: str) -> Optional[list]:
         """Request tmux list from agent and return cached result."""

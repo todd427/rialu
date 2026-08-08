@@ -190,6 +190,46 @@ async def send_keys(machine: str, payload: SendKeysIn):
     return {"status": "sent"}
 
 
+class CcStartIn(BaseModel):
+    slug: str
+    path: str = ""
+
+
+class CcStopIn(BaseModel):
+    target: str = ""
+    slug: str = ""
+
+
+@router.post("/machines/{machine}/cc-session/start")
+async def cc_session_start_remote(machine: str, payload: CcStartIn):
+    """Launch (or reuse) a Claude Code tmux session on a remote machine."""
+    try:
+        res = await hub.run_agent_action(
+            machine, "start_cc_session",
+            {"slug": payload.slug, "path": payload.path},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    if res.get("status") != "success":
+        raise HTTPException(status_code=500, detail=res.get("result", "start failed"))
+    return {"status": "started", "target": res.get("result", "")}
+
+
+@router.post("/machines/{machine}/cc-session/stop")
+async def cc_session_stop_remote(machine: str, payload: CcStopIn):
+    """Kill a Claude Code tmux session on a remote machine."""
+    try:
+        res = await hub.run_agent_action(
+            machine, "stop_cc_session",
+            {"target": payload.target, "slug": payload.slug},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    if res.get("status") != "success":
+        raise HTTPException(status_code=500, detail=res.get("result", "stop failed"))
+    return {"status": "stopped", "result": res.get("result", "")}
+
+
 @router.get("/machines/status")
 def machines_status():
     """Quick status: which machines are connected via WebSocket."""
