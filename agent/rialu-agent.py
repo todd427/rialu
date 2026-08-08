@@ -801,10 +801,21 @@ async def handle_action(ws, data: dict):
                     args = ["tmux", "new-session", "-d", "-s", target]
                     if path and Path(path).is_dir():
                         args += ["-c", path]
-                    args += ["claude"]
+                    # Run claude via a login shell: the systemd service PATH is
+                    # minimal and lacks nvm, where `claude` lives. `exec` makes
+                    # claude the pane's own process (clean detection/signals).
+                    args += ["bash", "-lc", "exec claude"]
                     r = subprocess.run(args, capture_output=True, text=True)
                     if r.returncode != 0:
                         raise RuntimeError(r.stderr.strip() or "tmux new-session failed")
+                    # new-session returns 0 even if the inner command dies, so
+                    # verify the session actually persisted before claiming success.
+                    await asyncio.sleep(0.5)
+                    alive = subprocess.run(
+                        ["tmux", "has-session", "-t", target], capture_output=True
+                    ).returncode == 0
+                    if not alive:
+                        raise RuntimeError("session exited immediately (claude not launchable?)")
                 result = target
                 status = "success"
 
