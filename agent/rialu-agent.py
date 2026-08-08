@@ -644,8 +644,12 @@ def detach_pane(channel: str):
 
 
 def send_tmux_keys(pane_id: str, keys: str):
-    """Send keystrokes to a tmux pane."""
-    _run_cmd(["tmux", "send-keys", "-t", pane_id, keys])
+    """Send keystrokes to a tmux pane.
+
+    Uses -l (literal) so raw bytes from a browser terminal — including a CR to
+    submit — pass through verbatim instead of being interpreted as key names.
+    """
+    _run_cmd(["tmux", "send-keys", "-t", pane_id, "-l", "--", keys])
 
 
 # ── Main loop ────────────────────────────────────────────────────────────────
