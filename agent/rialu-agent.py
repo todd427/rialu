@@ -798,13 +798,24 @@ async def handle_action(ws, data: dict):
                     ["tmux", "has-session", "-t", target], capture_output=True
                 ).returncode == 0
                 if not exists:
+                    # Resolve claude's absolute path via an INTERACTIVE login
+                    # shell (-i) — the systemd service PATH lacks nvm (where
+                    # claude lives), and a non-interactive shell skips ~/.bashrc
+                    # where nvm loads. Pass the absolute path to tmux so exec
+                    # doesn't depend on the pane's PATH.
+                    which = subprocess.run(
+                        ["bash", "-ilc", "command -v claude"],
+                        capture_output=True, text=True,
+                    )
+                    claude_bin = ""
+                    if which.stdout.strip():
+                        claude_bin = which.stdout.strip().splitlines()[-1].strip()
+                    if not claude_bin:
+                        raise RuntimeError("claude not found on this machine")
                     args = ["tmux", "new-session", "-d", "-s", target]
                     if path and Path(path).is_dir():
                         args += ["-c", path]
-                    # Run claude via a login shell: the systemd service PATH is
-                    # minimal and lacks nvm, where `claude` lives. `exec` makes
-                    # claude the pane's own process (clean detection/signals).
-                    args += ["bash", "-lc", "exec claude"]
+                    args += [claude_bin]
                     r = subprocess.run(args, capture_output=True, text=True)
                     if r.returncode != 0:
                         raise RuntimeError(r.stderr.strip() or "tmux new-session failed")
