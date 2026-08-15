@@ -230,6 +230,26 @@ async def cc_session_stop_remote(machine: str, payload: CcStopIn):
     return {"status": "stopped", "result": res.get("result", "")}
 
 
+class InitRepoIn(BaseModel):
+    name: str
+    description: str = ""
+
+
+@router.post("/machines/{machine}/init-repo")
+async def init_repo_remote(machine: str, payload: InitRepoIn):
+    """Scaffold a new git repo on a remote machine via its agent."""
+    try:
+        res = await hub.run_agent_action(
+            machine, "init_repo",
+            {"name": payload.name, "description": payload.description},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    if res.get("status") != "success":
+        raise HTTPException(status_code=500, detail=res.get("result", "init failed"))
+    return {"status": "created", "path": res.get("result", "")}
+
+
 @router.get("/machines/status")
 def machines_status():
     """Quick status: which machines are connected via WebSocket."""

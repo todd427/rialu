@@ -844,6 +844,40 @@ async def handle_action(ws, data: dict):
                 result = f"Stopped {target}"
                 status = "success"
 
+        elif action_type == "init_repo":
+            # Scaffold a new git repo on THIS machine (remote equivalent of
+            # Faire's local init_project_repo). Lands under the machine's first
+            # configured repo dir (REPO_DIRS[0]) so per-machine paths are honored
+            # (e.g. Lava's /home/todd/dev), falling back to /home/Projects.
+            p = json.loads(payload) if payload else {}
+            name = p.get("name", "").strip()
+            desc = p.get("description", "") or name
+            if not name:
+                result = "init_repo: missing name"
+            else:
+                base = REPO_DIRS[0] if REPO_DIRS else Path("/home/Projects")
+                repo = base / name
+                if repo.exists():
+                    raise RuntimeError(f"directory already exists: {repo}")
+                repo.mkdir(parents=True)
+                subprocess.run(["git", "init"], cwd=repo, capture_output=True, text=True, check=True)
+                (repo / "CLAUDE.md").write_text(
+                    f"# CLAUDE.md — {name}\n\n> {desc}\n\n---\n\n## What is this project?\n\n"
+                    f"{desc}\n\n---\n\n## Conventions\n\n- Commit format: `feat:`, `fix:`, "
+                    f"`chore:`, `docs:`\n- One feature per commit\n"
+                )
+                (repo / ".gitignore").write_text(
+                    ".env\n*.env.local\nnode_modules/\ntarget/\n__pycache__/\n.DS_Store\n"
+                )
+                subprocess.run(["git", "add", "."], cwd=repo, capture_output=True, text=True)
+                subprocess.run(
+                    ["git", "-c", f"user.name={GIT_AUTHOR}", "-c", "user.email=agent@rialu",
+                     "commit", "-m", "init: project scaffold"],
+                    cwd=repo, capture_output=True, text=True,
+                )
+                result = str(repo)
+                status = "success"
+
         else:
             result = f"Unknown action type: {action_type}"
 
