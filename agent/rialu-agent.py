@@ -501,12 +501,19 @@ def detect_claude_sessions(tmux_sessions: list) -> list:
 
 # ── Terminal (pty) management ────────────────────────────────────────────────
 
-# channel_id -> {"fd": master_fd, "pid": child_pid, "task": asyncio.Task}
+# channel_id -> {"fd", "pid", "task", "paused", "on_readable"}
 terminals: dict = {}
+
+# Bytes taken from a pty per readable event.
+PTY_READ_SIZE = 4096
+# Queued chunks before we detach the reader and let the shell block on its own
+# output buffer; re-attached once the pump has drained back down to the low mark.
+PTY_QUEUE_HIGH_WATER = 64
+PTY_QUEUE_LOW_WATER = 16
 
 
 async def open_terminal(ws, channel: str):
-    """Spawn a bash shell with a pty, pipe output to WebSocket."""
+    """Spawn a bash shell on a pty and stream it to the hub."""
     master_fd, slave_fd = pty.openpty()
     pid = os.fork()
     if pid == 0:
@@ -519,44 +526,69 @@ async def open_terminal(ws, channel: str):
         os.close(slave_fd)
         os.environ["TERM"] = "xterm-256color"
         os.execvp("/bin/bash", ["/bin/bash", "--login"])
-    else:
-        # Parent
-        os.close(slave_fd)
-        os.set_blocking(master_fd, False)
-        task = asyncio.create_task(pty_reader(ws, channel, master_fd, pid))
-        terminals[channel] = {"fd": master_fd, "pid": pid, "task": task}
-        log.info("Terminal opened: channel=%s pid=%d", channel, pid)
+
+    # Parent. Dropping our copy of the slave leaves the child as its only
+    # holder, so the master goes EOF/EIO the instant the shell exits. That is
+    # the exit signal — no liveness polling needed.
+    os.close(slave_fd)
+    os.set_blocking(master_fd, False)
+
+    loop = asyncio.get_running_loop()
+    chunks: asyncio.Queue = asyncio.Queue()
+
+    def on_readable():
+        """Event-loop callback: the pty has output ready."""
+        try:
+            data = os.read(master_fd, PTY_READ_SIZE)
+        except BlockingIOError:
+            return                       # spurious wakeup, nothing buffered
+        except OSError:
+            data = b""                   # EIO — the shell is gone
+        if not data:
+            loop.remove_reader(master_fd)
+            chunks.put_nowait(b"")       # end-of-stream marker
+            return
+        chunks.put_nowait(data)
+        if chunks.qsize() >= PTY_QUEUE_HIGH_WATER:
+            # Hub is not keeping up. Stop draining the pty so the shell blocks
+            # on its own output buffer rather than us buffering without bound
+            # (a runaway `yes` would otherwise grow this queue forever).
+            loop.remove_reader(master_fd)
+            entry["paused"] = True
+
+    entry = {"fd": master_fd, "pid": pid, "task": None,
+             "paused": False, "on_readable": on_readable}
+    terminals[channel] = entry
+    loop.add_reader(master_fd, on_readable)
+    entry["task"] = asyncio.create_task(pty_pump(ws, channel, entry, chunks))
+    log.info("Terminal opened: channel=%s pid=%d", channel, pid)
 
 
-async def pty_reader(ws, channel: str, fd: int, pid: int):
-    """Read from pty and send to hub via WebSocket."""
-    loop = asyncio.get_event_loop()
+async def pty_pump(ws, channel: str, entry: dict, chunks: asyncio.Queue):
+    """Forward pty output to the hub, in order, until the shell exits.
+
+    One consumer per terminal, so chunks reach the hub in the order the pty
+    produced them — concurrent sends could interleave and scramble the stream.
+    """
+    loop = asyncio.get_running_loop()
+    fd, pid = entry["fd"], entry["pid"]
     try:
         while True:
-            # Use run_in_executor for blocking read
-            try:
-                data = await asyncio.wait_for(
-                    loop.run_in_executor(None, lambda: os.read(fd, 4096)),
-                    timeout=0.5,
-                )
-                if not data:
-                    break
-                await ws.send(json.dumps({
-                    "type": "terminal_data",
-                    "channel": channel,
-                    "data": data.decode("utf-8", errors="replace"),
-                }))
-            except asyncio.TimeoutError:
-                # Check if process is still alive
-                try:
-                    os.waitpid(pid, os.WNOHANG)
-                except ChildProcessError:
-                    break
-            except OSError:
+            data = await chunks.get()
+            if not data:
                 break
+            await ws.send(json.dumps({
+                "type": "terminal_data",
+                "channel": channel,
+                "data": data.decode("utf-8", errors="replace"),
+            }))
+            if entry["paused"] and chunks.qsize() <= PTY_QUEUE_LOW_WATER:
+                loop.add_reader(fd, entry["on_readable"])
+                entry["paused"] = False
     except asyncio.CancelledError:
         pass
     finally:
+        loop.remove_reader(fd)
         try:
             os.close(fd)
         except OSError:
