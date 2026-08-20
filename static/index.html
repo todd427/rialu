@@ -50,8 +50,9 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
 .prow.open{border-color:var(--acc)}
 .prow-summary{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;user-select:none}
 .pmarker{width:8px;height:8px;border-radius:2px;flex-shrink:0}
-.pname{font-size:13px;font-weight:500;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pname{font-size:13px;font-weight:500;color:var(--text);flex:1 1 auto;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pmeta{font-size:11px;color:var(--t3);flex-shrink:0}
+.pphase{font-size:11px;color:var(--t3);flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pchev{font-size:13px;color:var(--t3);flex-shrink:0;transition:transform .15s;display:inline-block;line-height:1}
 .prow.open .pchev{transform:rotate(90deg)}
 .pdetail{border-top:0.5px solid var(--bd);padding:12px 14px;display:none}
@@ -669,17 +670,13 @@ function renderDivergenceStrip(){
   if (!el) return;
   const d = _divergenceData;
   if (!d || !d.counts){ el.style.display = 'none'; return; }
-  const c = d.counts, dd = d.days_to_deadline;
-  const ddColor = (dd != null && dd <= 14) ? 'var(--err)' : 'var(--warn)';
-  const ddText = (dd == null) ? '—'
-    : `${dd} day${dd === 1 ? '' : 's'}${d.deadline_label ? ' · ' + esc(d.deadline_label) : ''}`;
+  const c = d.counts;
   const filterable = (flag, label, color) => {
     const on = _healthFilter === flag;
     const ring = on ? `box-shadow:0 0 0 1.5px ${color}` : '';
     return `<div class="mcard" style="cursor:pointer;${ring}" onclick="toggleHealthFilter('${flag}')" title="Click to filter to these projects"><div class="mclabel">${label}</div><div class="mcval" style="color:${color}">${c[flag] || 0}</div></div>`;
   };
   el.innerHTML =
-    `<div class="mcard"><div class="mclabel">Deadline</div><div class="mcval" style="font-size:15px;color:${ddColor}">${ddText}</div></div>` +
     filterable('stale-active', 'Stale-active', 'var(--warn)') +
     filterable('no-trigger', 'No trigger', 'var(--t2)') +
     filterable('healthy', 'Healthy', 'var(--ok)');
@@ -785,7 +782,7 @@ function renderProjectList(projects){
         ${p.site_url ? `<a href="${esc(p.site_url)}" target="_blank" onclick="event.stopPropagation()" style="font-size:10px;color:var(--acc);text-decoration:none;flex-shrink:0">${hlesc(p.site_url.replace('https://',''))}</a>` : ''}
         ${statusPill(p.status)} ${runtimeBadge(p.runtime)}
         ${p.machine ? `<span class="pmeta">${hlesc(p.machine)}</span>` : ''}
-        ${p.phase ? `<span class="pmeta">${hlesc(p.phase)}</span>` : ''}
+        ${p.phase ? `<span class="pphase" title="${esc(p.phase)}">${hlesc(p.phase)}</span>` : ''}
         ${p.constellation ? `<span class="pmeta" style="color:var(--pur)" title="constellation">${hlesc(p.constellation)}</span>` : ''}
         <span class="pmeta" style="margin-left:auto">${timeSince(p.updated_at)}</span>
         <span class="pchev">›</span>
