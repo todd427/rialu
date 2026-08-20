@@ -110,7 +110,7 @@ column is added, `no-trigger` = parked AND `revisit_trigger IS NULL OR ''`.
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/api/divergence/run` | Compute flags for all projects, persist current flag, append to `divergence_log`. Returns summary. Auth-guarded (see `auth.py`). Accepts optional `window_days` (default 30). |
-| `GET` | `/api/divergence/latest` | Current flag per project **plus** an aggregate `counts` block and `days_to_deadline` (see 3b). Drives both the pills and the summary strip. |
+| `GET` | `/api/divergence/latest` | Current flag per project **plus** an aggregate `counts` block. Drives both the pills and the summary strip. (`days_to_deadline` removed 2026-08-20 — see 3b.) |
 | `GET` | `/api/divergence/log?limit=50` | Recent divergence decisions, newest first. |
 
 `POST /run` response shape (mirror `milestone_review`):
@@ -130,8 +130,6 @@ column is added, `no-trigger` = parked AND `revisit_trigger IS NULL OR ''`.
 ```json
 {
   "counts": {"stale-active": 4, "no-trigger": 6, "healthy": 9, "dormant-ok": 19},
-  "days_to_deadline": 7,
-  "deadline_label": "viva",
   "projects": [
     {"project_id": 23, "name": "Litir", "health": "stale-active",
      "health_detail": "0 commits in 30d; status=development"}
@@ -204,7 +202,6 @@ project view (cards/list/kanban/timeline) since it sits above the view container
 
 | Card | Value | Colour |
 |---|---|---|
-| Deadline | `days_to_deadline` + `deadline_label` (e.g. "7 days · viva") | `--err` if ≤14, else `--warn` |
 | Stale-active | `counts['stale-active']` | `--warn` |
 | No trigger | `counts['no-trigger']` | `--t2` (grey) |
 | Healthy | `counts['healthy']` | `--ok` |
@@ -219,12 +216,18 @@ again clears the filter. This needs no new filtering engine — `filterProjects(
 `renderProjectCards()`, `renderProjectList()` already exist and already re-render
 from `allProjects`.
 
-**Deadline source.** `days_to_deadline` is computed server-side in
-`/api/divergence/latest`. For Phase 1, hardcode the viva deadline date as a module
-constant in `routers/divergence.py` (the dissertation/viva is the one binding
-deadline through June 2026). A later iteration can read the nearest unmet milestone
-`due_date` across projects — but do not over-build that now; the constant is correct
-and honest for the current window.
+**Deadline source.** ~~`days_to_deadline` is computed server-side in
+`/api/divergence/latest`, hardcoded as a module constant in
+`routers/divergence.py`.~~
+
+> **Superseded 2026-08-20.** The Deadline card, the `VIVA_DEADLINE`/`DEADLINE_LABEL`
+> constants, and the `days_to_deadline`/`deadline_label` response fields were
+> **removed**. The hardcoded viva date (2026-06-19) passed, and nothing recomputed
+> it: the tile rendered `-62 days · viva` in permanent `--err` red, worsening by a
+> day every day (the SPA's `dd <= 14` colour test treats any negative as critical,
+> and the text template had no past-deadline case). The strip is now three tiles.
+> If a deadline card returns, derive it from the nearest unmet milestone `due_date`
+> rather than a constant — a date that cannot go stale on its own.
 
 **No chart, no new tab, no new panel.** Four stat cards + one filter hook.
 
@@ -271,7 +274,7 @@ Add `tests/test_divergence.py` following `tests/test_milestone_review.py` /
 - Commit counting parses pipe-delimited notes (3 commits in one row counts as 3,
   not 1).
 - `POST /run` writes `divergence_log` rows and updates `projects.health`.
-- `GET /latest` returns a `counts` block and `days_to_deadline`.
+- `GET /latest` returns a `counts` block. (`days_to_deadline` removed 2026-08-20.)
 - Idempotency: running twice in one day leaves one health value, two log rows.
 
 ---
@@ -280,8 +283,7 @@ Add `tests/test_divergence.py` following `tests/test_milestone_review.py` /
 
 - [ ] `routers/divergence.py` created, registered in `main.py`.
 - [ ] `POST /api/divergence/run` computes and persists flags; returns summary.
-- [ ] `GET /api/divergence/latest` returns per-project flags + `counts` +
-      `days_to_deadline`.
+- [ ] `GET /api/divergence/latest` returns per-project flags + `counts`.
 - [ ] `GET /api/divergence/log` returns recent decisions newest-first.
 - [ ] Migrations 021–023 appended to `db.py`, idempotent on restart.
 - [ ] Commit counting reuses `commits.py` parsing (no duplicated logic).

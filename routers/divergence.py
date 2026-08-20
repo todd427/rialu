@@ -51,15 +51,6 @@ NARRATIVE_STALE = "narrative-stale"
 # The free-text fields whose authorship date narrative_written_at records.
 NARRATIVE_FIELDS = ("phase", "notes")
 
-# The one binding deadline through June 2026 (dissertation viva). Phase 1 hardcodes
-# it as a constant per the PRD; a later iteration may derive it from milestone
-# due_dates. Drives the summary-strip "Deadline" card via /api/divergence/latest.
-# NB: this is the VIVA date (19 June), not the 12 June submission deadline — the
-# manuscript was submitted 10 June; the binding date through this window is the viva.
-from datetime import date as _date
-VIVA_DEADLINE = _date(2026, 6, 19)
-DEADLINE_LABEL = "viva"
-
 
 def _has_trigger(project: dict) -> bool:
     """True if the project declares a plan to revisit it (so parking is intentional)."""
@@ -293,9 +284,12 @@ def run(
 @router.get("/latest")
 def latest():
     """
-    Current flag per project plus an aggregate `counts` block and the days left
-    to the binding deadline. Drives both the per-card pills and the Projects-tab
-    summary strip.
+    Current flag per project plus an aggregate `counts` block. Drives both the
+    per-card pills and the Projects-tab summary strip.
+
+    The hardcoded viva-deadline card (`days_to_deadline`/`deadline_label`) was
+    removed 2026-08-20: the date had passed, so the tile rendered a permanently
+    red negative countdown.
     """
     with db() as conn:
         proj_rows = conn.execute(
@@ -346,8 +340,6 @@ def latest():
     return {
         "counts": counts,
         "narrative_stale": sum(1 for p in projects if p["narrative_health"]),
-        "days_to_deadline": (VIVA_DEADLINE - _date.today()).days,
-        "deadline_label": DEADLINE_LABEL,
         "projects": projects,
     }
 

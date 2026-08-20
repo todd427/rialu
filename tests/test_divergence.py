@@ -191,9 +191,9 @@ def test_latest_counts_and_deadline():
     assert data["counts"]["stale-active"] == 1
     assert data["counts"]["no-trigger"] == 1
     assert data["counts"]["healthy"] == 1
-    assert "days_to_deadline" in data
-    assert isinstance(data["days_to_deadline"], int)
-    assert data["deadline_label"] == "viva"
+    # Deadline card removed 2026-08-20 (hardcoded viva date had passed).
+    assert "days_to_deadline" not in data
+    assert "deadline_label" not in data
 
 
 def test_idempotency_one_health_two_log_rows():
