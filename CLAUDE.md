@@ -18,7 +18,7 @@ The vault (keys, logins, and the Secrets Wizard) has been fully extracted to **T
 # Run dev server (port 8080)
 python main.py
 
-# Run all tests (293 collected across 28 files)
+# Run all tests (317 collected across 30 files)
 RIALU_TEST=1 python -m pytest tests/ -v
 
 # Run a single test file
@@ -52,7 +52,7 @@ cli/rialu divergence-run [--window-days N]
 - `sentinel.py` — Threat intelligence dashboard (proxies Sentinel API + recent events)
 - `mcp_status.py` — Health checker for all 4 MCP connectors
 - `milestone_review.py` — Automated milestone verification against GitHub repos
-- `machines.py` — rialu-agent heartbeats, action queue, WebSocket terminal
+- `machines.py` — rialu-agent heartbeats, action queue, WebSocket terminal. `normalise_heartbeat()` is the single shape-reducer shared with `ws_hub.py`: it accepts both the legacy flat payload (`cpu_pct`, scalar `gpu_pct`) and the per-die shape (`cpu:{load_pct,temp_c}`, `gpus:[…]`), and always derives the legacy scalars so Faire renders unchanged during a rolling fleet upgrade. `gpu_pct` = **max** across cards, never mean
 - `mnemos.py` — Mnemos memory integration (stats, search, ingest proxy)
 - `github.py` — GitHub repo discovery, adoption, and repo creation
 - `export.py` — CSV exports (projects, worklog, budget, usage, sentinel)
@@ -63,7 +63,7 @@ cli/rialu divergence-run [--window-days N]
 - `auth.py` — Bearer token verification for Faire/MCP clients
 - `mcp_server.py` — MCP server at `/mcp` (OAuth 2.1, project tools: list/get/create/update)
 - `faire_hub.py` — WebSocket broadcast hub for Faire desktop clients
-- `ws_hub.py` — WebSocket hub for rialu-agent connections
+- `ws_hub.py` — WebSocket hub for rialu-agent connections, plus `/ws/viewer`, a read-only telemetry feed for Teas (same HMAC as the agent socket, snapshot on connect, heartbeats fanned out *before* the SQLite write, every inbound type except `ping` refused)
 
 **Pollers** (`poller.py`):
 - Fly.io GraphQL (60s) — app/machine status
@@ -108,6 +108,7 @@ The divergence digest is **not** an APScheduler job — it's triggered externall
 - **Commit activity:** Per-project and global commit graphs (Chart.js) with LOC overlay, 30d/90d/1y range, CSV export. Cards layout default with `commits_7d` count.
 - **Machine fleet:** rialu-agent runs on **Daisy**, **Iris**, and **Lava** (systemd, WebSocket to `wss://rialu.ie/ws/agent` through Cloudflare Access via a service token). Lava is the first member running from `/home/todd/dev/rialu` rather than `/home/Projects/rialu` — its unit paths and `repo_dirs` are edited accordingly (see `agent/ADDING-A-MACHINE.md`). Heartbeats report CPU/RAM/GPU, project processes, and per-repo git state. The auto-git worklog ingested from agent commits **merges by hash across machines** (union, never clobber; minutes = max of each reporter), so multiple machines reporting a shared repo no longer overwrite each other. Down machines render as dimmed "last seen" cards after 5 min; a **Remove** button (`DELETE /api/machines/{name}`, refused while WS-connected) clears retired ones.
 - **Narrative staleness:** `narrative_written_at` records when `phase`/`notes` were last *authored* — written only on a real value change (never on an incidental edit, which is why `updated_at` can't be used). `commits_since_narrative` is computed live from `worklog` and returned by `GET /api/projects`, `/api/divergence/latest`, and the MCP `list_projects` projection; the card annotates it next to the phase text.
+- **Per-die telemetry (Teas):** Heartbeats carry one entry per GPU in `gpus[]` (lily has two cards; the old `get_gpu_pct()` returned only index 0) plus CPU temperature in `cpu.temp_c` — `null` on the WSL2 hosts, which must still heartbeat. Stored in `machine_heartbeats.gpus_json` / `cpu_temp_c` (migration 026); no history table, one row per machine. The agent paces itself: 30s normally, **2s while any die is at/above `TEAS_WARN_C`** (default 75), returning to 30s only after 60s clear of a 5°C hysteresis band — a fixed 30s beat measured Teas's 30s dwell alarm from one or two samples. `get_cpu_pct()` is now non-blocking (`interval=None`, primed at startup); the old `interval=1` would have spent half the agent's life blocked at the 2s rate. See `docs/cc-brief-teas-per-die-telemetry.md`
 - **CSV exports:** All major data types downloadable from the SPA
 - **Security:** `rialu.fly.dev` locked down, MCP self-authenticating via OAuth 2.1
-- **Tests:** 293 collected across 28 test files (6 pre-existing failures in `test_usage.py`/`test_export.py` — the fixture CSV is dated outside the query window)
+- **Tests:** 317 collected across 30 test files (6 pre-existing failures in `test_usage.py`/`test_export.py` — the fixture CSV is dated outside the query window)

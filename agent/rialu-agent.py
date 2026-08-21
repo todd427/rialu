@@ -43,6 +43,14 @@ HUB_URL = os.environ.get("RIALU_HUB_URL", "https://rialu.fly.dev").rstrip("/")
 AGENT_KEY = os.environ.get("RIALU_AGENT_KEY", "")
 MACHINE_NAME = os.environ.get("RIALU_MACHINE_NAME", "unknown")
 HEARTBEAT_INTERVAL = int(os.environ.get("RIALU_HEARTBEAT_INTERVAL", "30"))
+# Teas alert ladder: warning at a 30s dwell, critical at 60s. At a fixed 30s
+# heartbeat a 30s dwell is measured from one or two samples and the alert can
+# fire up to 30s late, so the agent raises its own rate while any die is hot.
+TEAS_WARN_C = float(os.environ.get("TEAS_WARN_C", "75"))
+HEARTBEAT_INTERVAL_HOT = int(os.environ.get("RIALU_HEARTBEAT_INTERVAL_HOT", "2"))
+# Hysteresis: a die sitting exactly on the threshold must not oscillate the rate.
+TEAS_COOL_MARGIN_C = 5.0
+TEAS_COOL_SECONDS = 60.0
 TMUX_POLL_INTERVAL = 5  # seconds between tmux scans
 CLAUDE_POLL_INTERVAL = 3  # seconds between Claude Code checks
 
@@ -98,27 +106,177 @@ def make_auth_message() -> dict:
     return {"type": "auth", "machine": MACHINE_NAME, "ts": ts, "sig": sig}
 
 
+# ── Heartbeat pacing ─────────────────────────────────────────────────────────
+
+class HeartbeatPacer:
+    """Chooses the heartbeat interval from the hottest die.
+
+    Fast while anything is at or above the warn threshold; back to the slow
+    rate only after the fleet has been comfortably cool for a sustained
+    period. Two guards against flapping:
+
+      - a margin, so falling from 75 to 74 does not immediately relax; the
+        temperature must drop clear of the threshold, not just below it
+      - a cooldown, so a brief dip does not end the fast window early
+
+    `now` is injected rather than read from the clock so the behaviour is
+    testable without sleeping through a 60s cooldown.
+    """
+
+    def __init__(self, warn_c=TEAS_WARN_C, fast=HEARTBEAT_INTERVAL_HOT,
+                 slow=HEARTBEAT_INTERVAL, margin=TEAS_COOL_MARGIN_C,
+                 cooldown=TEAS_COOL_SECONDS):
+        self.warn_c = warn_c
+        self.fast = fast
+        self.slow = slow
+        self.margin = margin
+        self.cooldown = cooldown
+        self._hot = False
+        self._cool_since = None
+
+    @property
+    def hot(self) -> bool:
+        return self._hot
+
+    def interval(self, hottest_c, now: float):
+        """Interval to wait before the next heartbeat, given the hottest die."""
+        if hottest_c is None:
+            # Nothing reports a temperature (WSL2). There is nothing to
+            # escalate on, so stay at the slow rate.
+            self._hot = False
+            self._cool_since = None
+            return self.slow
+
+        if hottest_c >= self.warn_c:
+            self._hot = True
+            self._cool_since = None
+        elif self._hot:
+            if hottest_c < self.warn_c - self.margin:
+                # Clear of the threshold. Start, or continue, the cooldown.
+                if self._cool_since is None:
+                    self._cool_since = now
+                elif now - self._cool_since >= self.cooldown:
+                    self._hot = False
+                    self._cool_since = None
+            else:
+                # Inside the hysteresis band: still fast, cooldown reset.
+                self._cool_since = None
+
+        return self.fast if self._hot else self.slow
+
+
 # ── Resource collection ──────────────────────────────────────────────────────
 
 def get_cpu_pct() -> float:
-    return psutil.cpu_percent(interval=1)
+    """CPU load since the previous call.
+
+    interval=None so this does NOT block. The old interval=1 stalled the whole
+    agent for a full second per heartbeat, which at the 2s hot-path interval
+    would have spent half the agent's life inside this one call. The first
+    call after startup returns 0.0 by design — prime_cpu_pct() absorbs it.
+    """
+    return psutil.cpu_percent(interval=None)
+
+
+def prime_cpu_pct() -> None:
+    """Discard the meaningless first sample so heartbeat one is real."""
+    psutil.cpu_percent(interval=None)
 
 
 def get_ram_pct() -> float:
     return psutil.virtual_memory().percent
 
 
-def get_gpu_pct():
+# Sensor labels that denote the package/aggregate CPU temperature, best first.
+# k10temp/Tctl on the AMD boxes, coretemp/Package id 0 on Intel.
+_CPU_TEMP_LABELS = ("Tctl", "Package id 0", "Tdie", "CPU")
+
+
+def get_cpu_temp_c():
+    """Package CPU temperature, or None where the platform exposes none.
+
+    WSL2 hosts (lava, rose) typically expose no thermal sensor at all. That is
+    a normal state, not a failure: returning None here must still produce a
+    valid heartbeat.
+    """
+    try:
+        sensors = psutil.sensors_temperatures()
+    except (AttributeError, OSError):
+        return None                      # not available on this platform
+    if not sensors:
+        return None
+
+    # Prefer a package/aggregate label wherever it appears.
+    for entries in sensors.values():
+        for e in entries:
+            if e.label in _CPU_TEMP_LABELS and e.current is not None:
+                return float(e.current)
+    # Otherwise the first sensor that reports anything at all.
+    for entries in sensors.values():
+        for e in entries:
+            if e.current is not None:
+                return float(e.current)
+    return None
+
+
+def get_gpus() -> list:
+    """Per-die GPU telemetry — one entry per card, in nvidia-smi index order.
+
+    One nvidia-smi invocation for every field, mirroring the query that
+    firstlight's `loads` already uses. Every line is iterated: lily has two
+    cards and the previous [0] indexing made the second one invisible
+    fleet-wide. A machine with no GPU returns [] — never null, never a
+    zero-filled placeholder.
+    """
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+            ["nvidia-smi",
+             "--query-gpu=index,name,utilization.gpu,temperature.gpu,memory.used,memory.total",
+             "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5,
         )
-        if result.returncode == 0:
-            return float(result.stdout.strip().split("\n")[0])
-    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
-        pass
-    return None
+        if result.returncode != 0:
+            return []
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return []
+
+    gpus = []
+    for line in result.stdout.strip().splitlines():
+        if not line.strip():
+            continue
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 6:
+            continue
+        try:
+            gpus.append({
+                "i": int(parts[0]),
+                "name": parts[1],
+                "load_pct": float(parts[2]),
+                "temp_c": float(parts[3]),
+                "mem_used_mb": int(float(parts[4])),
+                "mem_total_mb": int(float(parts[5])),
+            })
+        except ValueError:
+            # A card reporting "[N/A]" for a field — skip that card rather
+            # than dropping the whole heartbeat.
+            continue
+    return gpus
+
+
+def gpu_pct_from(gpus: list):
+    """Back-compat scalar: the busiest card.
+
+    max, not mean — Faire's gauge must not average away a pegged card.
+    """
+    loads = [g["load_pct"] for g in gpus if g.get("load_pct") is not None]
+    return max(loads) if loads else None
+
+
+def hottest_die_c(cpu_temp_c, gpus: list):
+    """Hottest reading across every die, or None if nothing reports."""
+    temps = [t for t in [cpu_temp_c] if t is not None]
+    temps += [g["temp_c"] for g in gpus if g.get("temp_c") is not None]
+    return max(temps) if temps else None
 
 
 # ── Process filtering ────────────────────────────────────────────────────────
@@ -689,30 +847,50 @@ def send_tmux_keys(pane_id: str, keys: str):
 # ── Main loop ────────────────────────────────────────────────────────────────
 
 async def heartbeat_loop(ws):
-    """Send heartbeat with system stats every HEARTBEAT_INTERVAL seconds."""
+    """Send heartbeat with system stats, pacing on the hottest die.
+
+    Interval is not fixed: see HeartbeatPacer. Every heartbeat carries both
+    the new per-die shape (cpu{}, gpus[]) and the legacy scalars, because the
+    fleet upgrades one machine at a time and Faire reads the scalars today.
+    """
     from websockets.exceptions import ConnectionClosed
+    pacer = HeartbeatPacer()
+    prime_cpu_pct()   # absorb psutil's meaningless first sample
+    interval = HEARTBEAT_INTERVAL
     while True:
         try:
+            cpu_temp = get_cpu_temp_c()
+            gpus = get_gpus()
+            cpu_load = get_cpu_pct()
             payload = {
                 "type": "heartbeat",
                 "machine": MACHINE_NAME,
-                "cpu_pct": get_cpu_pct(),
+                # New per-die shape.
+                "cpu": {"load_pct": cpu_load, "temp_c": cpu_temp},
+                "gpus": gpus,
+                # Legacy scalars — load-bearing for Faire, keep emitting.
+                "cpu_pct": cpu_load,
                 "ram_pct": get_ram_pct(),
-                "gpu_pct": get_gpu_pct(),
+                "gpu_pct": gpu_pct_from(gpus),
                 "processes": get_filtered_processes(),
                 "repos": scan_repos(),
                 "api_scan": scan_all_repo_apis(),
             }
             await ws.send(json.dumps(payload))
-            log.info("Heartbeat sent — cpu=%.1f%% ram=%.1f%% repos=%d",
-                     payload["cpu_pct"], payload["ram_pct"], len(payload["repos"]))
+
+            hottest = hottest_die_c(cpu_temp, gpus)
+            interval = pacer.interval(hottest, time.monotonic())
+            log.info("Heartbeat sent — cpu=%.1f%% ram=%.1f%% gpus=%d hottest=%s repos=%d next=%ds%s",
+                     payload["cpu_pct"], payload["ram_pct"], len(gpus),
+                     ("%.0f°C" % hottest) if hottest is not None else "n/a",
+                     len(payload["repos"]), interval, " HOT" if pacer.hot else "")
         except ConnectionClosed:
             # Connection dropped (e.g. CloudFlare proxy restart). Propagate so
             # run()'s reconnect loop fires — do NOT swallow and keep spinning.
             raise
         except Exception:
             log.exception("Heartbeat error")
-        await asyncio.sleep(HEARTBEAT_INTERVAL)
+        await asyncio.sleep(interval)
 
 
 async def tmux_monitor_loop(ws):

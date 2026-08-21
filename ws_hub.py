@@ -54,6 +54,9 @@ class AgentHub:
         self.claude_cache: dict[str, list] = {}
         # action_id -> Future, for request/response agent actions
         self.pending_actions: dict[str, asyncio.Future] = {}
+        # Read-only viewer sockets (Teas). A set, not a dict: viewers are
+        # anonymous fan-out targets with no routing key and no reply path.
+        self.viewers: set[WebSocket] = set()
 
     def is_connected(self, machine: str) -> bool:
         return machine in self.agents
@@ -195,7 +198,27 @@ class AgentHub:
                     pass
 
     async def _store_heartbeat(self, machine: str, data: dict):
-        """Upsert heartbeat data into DB and broadcast to Faire clients."""
+        """Upsert heartbeat data into DB and broadcast to viewers and Faire."""
+        from routers.machines import normalise_heartbeat
+        hb = normalise_heartbeat(data)
+
+        payload = {
+            "machine_name": machine,
+            # Legacy scalars — load-bearing for Faire's .mcard.
+            "cpu_pct": hb["cpu_pct"],
+            "ram_pct": hb["ram_pct"],
+            "gpu_pct": hb["gpu_pct"],
+            # New per-die shape for Teas.
+            "cpu": {"load_pct": hb["cpu_pct"], "temp_c": hb["cpu_temp_c"]},
+            "gpus": hb["gpus"],
+            "processes": hb["processes"],
+            "repos": hb["repos"],
+        }
+
+        # Fan out to viewers FIRST. A viewer socket that waits on SQLite has
+        # thrown away the latency the adaptive heartbeat interval bought.
+        await self.broadcast_to_viewers({"type": "heartbeat", **payload})
+
         with db() as conn:
             conn.execute(
                 "DELETE FROM machine_heartbeats WHERE machine_name = ?",
@@ -203,16 +226,18 @@ class AgentHub:
             )
             conn.execute(
                 """INSERT INTO machine_heartbeats
-                   (machine_name, cpu_pct, ram_pct, gpu_pct,
-                    processes_json, repos_json, received_at)
-                   VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+                   (machine_name, cpu_pct, ram_pct, gpu_pct, cpu_temp_c,
+                    processes_json, repos_json, gpus_json, received_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
                 (
                     machine,
-                    data.get("cpu_pct"),
-                    data.get("ram_pct"),
-                    data.get("gpu_pct"),
-                    json.dumps(data.get("processes", [])),
-                    json.dumps(data.get("repos", [])),
+                    hb["cpu_pct"],
+                    hb["ram_pct"],
+                    hb["gpu_pct"],
+                    hb["cpu_temp_c"],
+                    json.dumps(hb["processes"]),
+                    json.dumps(hb["repos"]),
+                    json.dumps(hb["gpus"]),
                 ),
             )
         # Broadcast to Faire desktop clients
@@ -220,14 +245,7 @@ class AgentHub:
         await faire_hub.broadcast({
             "event": "agent.heartbeat",
             "agent_id": machine,
-            "payload": {
-                "machine_name": machine,
-                "cpu_pct": data.get("cpu_pct"),
-                "ram_pct": data.get("ram_pct"),
-                "gpu_pct": data.get("gpu_pct"),
-                "processes": data.get("processes", []),
-                "repos": data.get("repos", []),
-            },
+            "payload": payload,
         })
 
     async def _check_cc_waiting(self, machine: str, sessions: list, prev_sessions: list):
@@ -338,6 +356,83 @@ class AgentHub:
                     }))
                 except Exception:
                     pass
+
+    # ── Viewer socket (read-only) ────────────────────────────────────────
+
+    async def broadcast_to_viewers(self, msg: dict):
+        """Fan a message out to every connected viewer.
+
+        Never raises: a viewer that has gone away must not interrupt the
+        heartbeat path that called us.
+        """
+        if not self.viewers:
+            return
+        raw = json.dumps(msg)
+        dead = []
+        for ws in list(self.viewers):
+            try:
+                await ws.send_text(raw)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.viewers.discard(ws)
+
+    def _viewer_snapshot(self) -> dict:
+        """Current state of every machine, for a viewer that just connected.
+
+        Without this a widget opening mid-session shows nothing until the next
+        heartbeat — up to 30s of blank gauges on an idle fleet.
+        """
+        from routers.machines import list_machines
+        return {"type": "snapshot", "machines": list_machines()}
+
+    async def handle_viewer(self, ws: WebSocket):
+        """Handle a read-only viewer WebSocket (Teas).
+
+        Same HMAC scheme as the agent socket — deliberately reusing
+        _verify_agent_auth rather than inventing a second auth path.
+
+        A viewer is strictly a sink. It may send pings to keep the connection
+        alive; every other inbound message type is refused and the socket is
+        closed. A viewer must never be able to reach an agent, so there is no
+        branch here that forwards anything — the capability simply does not
+        exist on this path.
+        """
+        await ws.accept()
+
+        try:
+            raw = await asyncio.wait_for(ws.receive_text(), timeout=10)
+            auth = json.loads(raw)
+        except (asyncio.TimeoutError, json.JSONDecodeError):
+            await ws.close(code=4001, reason="Auth timeout or invalid JSON")
+            return
+
+        if not self._verify_agent_auth(auth):
+            await ws.close(code=4003, reason="Auth failed")
+            return
+
+        self.viewers.add(ws)
+        log.info("Viewer connected (%d total)", len(self.viewers))
+
+        try:
+            await ws.send_text(json.dumps(self._viewer_snapshot()))
+            while True:
+                data = json.loads(await ws.receive_text())
+                if data.get("type") != "ping":
+                    # Not merely ignored — refused. An inbound type we do not
+                    # recognise on a read-only socket is a client doing
+                    # something it should not, and it ends the connection.
+                    log.warning("Viewer sent disallowed message type: %r",
+                                data.get("type"))
+                    await ws.close(code=4400, reason="Viewer sockets are read-only")
+                    return
+                await ws.send_text(json.dumps({"type": "pong"}))
+        except WebSocketDisconnect:
+            log.info("Viewer disconnected")
+        except Exception:
+            log.exception("Viewer error")
+        finally:
+            self.viewers.discard(ws)
 
     # ── Browser terminal ─────────────────────────────────────────────────
 

@@ -3,7 +3,7 @@
 **Project:** Rialú
 **Date:** 20 August 2026
 **Requested by:** the Teas design session — three viewer surfaces designed against a heartbeat that cannot feed them
-**Status:** Ready for implementation
+**Status:** Implemented 21 Aug 2026 — see `tests/test_teas_telemetry.py` (19 tests)
 **Consumer:** `teas` — Tauri desktop viewer (separate repo, not built yet)
 
 ---
@@ -46,7 +46,7 @@ The hysteresis margin and cooldown exist so a die sitting at exactly 75 does not
 
 Switch `get_cpu_pct()` to non-blocking `psutil.cpu_percent(interval=None)` (first call returns 0.0; prime it once at startup) so the fast path is not dominated by a blocking sample.
 
-`# TODO:` confirm whether the WS hub or Cloudflare imposes a message-rate ceiling that 2 s × 5 machines would approach. It should not — the pane streamer in the same agent already sends at 0.3 s intervals — but verify rather than assume.
+~~`# TODO:` confirm whether the WS hub or Cloudflare imposes a message-rate ceiling that 2 s × 5 machines would approach.~~ **Resolved 21 Aug 2026.** No ceiling is approached. The hot path is 2 s × 5 machines = **2.5 msg/s aggregate**. `pane_streamer` in the same agent sends every **0.3 s** (`agent/rialu-agent.py:824`) — 3.3 msg/s from a *single* machine over the same hub and the same Cloudflare tunnel. One attached tmux pane already sustains more than the entire fleet will at the fast rate.
 
 ---
 
@@ -115,7 +115,7 @@ Add a **read-only** viewer socket to `ws_hub.py`:
 - Thereafter, fan out each agent heartbeat to all connected viewers as it arrives. **Fan out on receipt, before or in parallel with the DB write** — a viewer socket that waits on SQLite has thrown away the latency the adaptive interval bought.
 - Viewers send nothing but a periodic ping. Reject any other inbound message type; a viewer must never be able to reach an agent.
 
-`# TODO:` decide whether Rialú's own SPA (`static/index.html`) should consume this socket too, replacing its machine polling. Out of scope here — note it and move on.
+`# TODO:` decide whether Rialú's own SPA (`static/index.html`) should consume this socket too, replacing its machine polling. **Deferred, not done** — out of scope per this brief. The socket is in place and the SPA still polls `/api/machines`; switching it is a self-contained follow-up.
 
 ---
 
@@ -148,14 +148,14 @@ Extend `tests/test_machines.py` and `tests/test_agent.py`:
 
 ## <span style="color:#1D9E75">Acceptance criteria</span>
 
-- [ ] Migrations appended to `db.py`, idempotent on restart.
-- [ ] Agent collects per-die GPU temperature and load in a single `nvidia-smi` call; every card reported, not just index 0.
-- [ ] Agent reports CPU temperature where available, `null` where not, without failing the heartbeat.
-- [ ] Adaptive heartbeat interval implemented with hysteresis and cooldown; `get_cpu_pct()` no longer blocks for a second.
-- [ ] `gpu_pct` / `cpu_pct` / `ram_pct` still emitted and still correct — **Faire renders unchanged against the new agent**.
-- [ ] `/api/machines` returns `cpu` and `gpus` alongside the legacy scalars.
-- [ ] `/ws/viewer` authenticates by HMAC, sends a snapshot on connect, fans out heartbeats on receipt, and refuses all inbound message types.
-- [ ] Tests above passing; existing suite still green.
+- [x] Migrations appended to `db.py`, idempotent on restart.
+- [x] Agent collects per-die GPU temperature and load in a single `nvidia-smi` call; every card reported, not just index 0.
+- [x] Agent reports CPU temperature where available, `null` where not, without failing the heartbeat.
+- [x] Adaptive heartbeat interval implemented with hysteresis and cooldown; `get_cpu_pct()` no longer blocks for a second.
+- [x] `gpu_pct` / `cpu_pct` / `ram_pct` still emitted and still correct — **Faire renders unchanged against the new agent**.
+- [x] `/api/machines` returns `cpu` and `gpus` alongside the legacy scalars.
+- [x] `/ws/viewer` authenticates by HMAC, sends a snapshot on connect, fans out heartbeats on receipt, and refuses all inbound message types.
+- [x] Tests above passing; existing suite still green.
 
 ---
 

@@ -376,6 +376,17 @@ MIGRATIONS = [
     # rows touched since their prose was written, and self-corrects on the next
     # real narrative edit. Guarded on NULL, so it never overwrites a real value.
     "UPDATE projects SET narrative_written_at = updated_at WHERE narrative_written_at IS NULL",
+    # 026 — per-die telemetry for Teas (docs/cc-brief-teas-per-die-telemetry.md).
+    # cpu_temp_c is nullable by design: the WSL2 hosts (lava, rose) expose no
+    # thermal sensor, and a machine that cannot report a temperature must still
+    # be able to send a valid heartbeat.
+    # gpus_json follows the processes_json/repos_json convention — one JSON list,
+    # one entry per card, in nvidia-smi index order. Deliberately NOT a normalised
+    # table: machine_heartbeats holds exactly one row per machine (the write path
+    # deletes before inserting), so there is no history to model and a join buys
+    # nothing. The scalar gpu_pct column stays for Faire's back-compat.
+    "ALTER TABLE machine_heartbeats ADD COLUMN cpu_temp_c REAL",
+    "ALTER TABLE machine_heartbeats ADD COLUMN gpus_json TEXT",
 ]
 
 

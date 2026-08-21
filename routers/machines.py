@@ -59,6 +59,48 @@ class ActionIn(BaseModel):
     payload: Optional[str] = None
 
 
+# ── Heartbeat shape ──────────────────────────────────────────────────────────
+
+def normalise_heartbeat(data: dict) -> dict:
+    """Reduce either heartbeat shape to the columns we store.
+
+    Agents upgrade per-machine via firstlight, so the hub sees the old flat
+    shape (`cpu_pct`, scalar `gpu_pct`, no `gpus`) and the new one
+    (`cpu: {load_pct, temp_c}`, `gpus: [...]`) at the same time for some
+    period. Both are accepted here so neither end of a rolling upgrade breaks.
+
+    The legacy scalars are always derived and always stored — Faire's .mcard
+    reads cpu_pct/ram_pct/gpu_pct today and must render unchanged.
+
+    Shared by the HTTP route and ws_hub's WebSocket path; two copies of this
+    logic would drift the moment one shape gained a field.
+    """
+    cpu = data.get("cpu") or {}
+    gpus = data.get("gpus")
+
+    if gpus is None:
+        # Legacy agent. It cannot tell us anything per-die, so `gpus` stays an
+        # empty list rather than a fabricated entry — the brief rules out
+        # zero-filled placeholders — and the scalar carries what we do know.
+        gpu_pct = data.get("gpu_pct")
+        gpus = []
+    else:
+        loads = [g.get("load_pct") for g in gpus if g.get("load_pct") is not None]
+        # max, not mean: a monitoring field must not average away a pegged card.
+        gpu_pct = max(loads) if loads else None
+
+    return {
+        # New shape wins where present; fall back to the flat legacy field.
+        "cpu_pct": cpu.get("load_pct", data.get("cpu_pct")),
+        "ram_pct": data.get("ram_pct"),
+        "gpu_pct": gpu_pct,
+        "cpu_temp_c": cpu.get("temp_c"),
+        "gpus": gpus,
+        "processes": data.get("processes", []),
+        "repos": data.get("repos", []),
+    }
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("/machines")
@@ -80,8 +122,16 @@ def list_machines():
         d = row_to_dict(r)
         d["processes"] = json.loads(d["processes_json"]) if d.get("processes_json") else []
         d["repos"] = json.loads(d["repos_json"]) if d.get("repos_json") else []
+        # `gpus` is a list at every layer — a machine with no card reports [],
+        # never null, so consumers never special-case "the GPU".
+        d["gpus"] = json.loads(d["gpus_json"]) if d.get("gpus_json") else []
+        # Nested shape for new consumers; the flat cpu_pct/ram_pct/gpu_pct keys
+        # stay alongside it untouched for Faire.
+        d["cpu"] = {"load_pct": d.get("cpu_pct"), "temp_c": d.get("cpu_temp_c")}
         del d["processes_json"]
         del d["repos_json"]
+        del d["gpus_json"]
+        del d["cpu_temp_c"]   # exposed as cpu.temp_c; one home for the new shape
         result.append(d)
     return result
 
@@ -94,22 +144,41 @@ async def agent_heartbeat(request: Request):
     if not machine:
         raise HTTPException(status_code=400, detail="Missing 'machine' field")
 
+    hb = normalise_heartbeat(data)
     with db() as conn:
         # Delete previous heartbeat for this machine (one row per machine)
         conn.execute("DELETE FROM machine_heartbeats WHERE machine_name = ?", (machine,))
         conn.execute(
             """INSERT INTO machine_heartbeats
-               (machine_name, cpu_pct, ram_pct, gpu_pct, processes_json, repos_json, received_at)
-               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+               (machine_name, cpu_pct, ram_pct, gpu_pct, cpu_temp_c,
+                processes_json, repos_json, gpus_json, received_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (
                 machine,
-                data.get("cpu_pct"),
-                data.get("ram_pct"),
-                data.get("gpu_pct"),
-                json.dumps(data.get("processes", [])),
-                json.dumps(data.get("repos", [])),
+                hb["cpu_pct"],
+                hb["ram_pct"],
+                hb["gpu_pct"],
+                hb["cpu_temp_c"],
+                json.dumps(hb["processes"]),
+                json.dumps(hb["repos"]),
+                json.dumps(hb["gpus"]),
             ),
         )
+
+    # Agents normally heartbeat over the WebSocket, but this HTTP path is still
+    # live — fan out here too, or a viewer silently misses any machine using it.
+    from ws_hub import hub
+    await hub.broadcast_to_viewers({
+        "type": "heartbeat",
+        "machine_name": machine,
+        "cpu_pct": hb["cpu_pct"],
+        "ram_pct": hb["ram_pct"],
+        "gpu_pct": hb["gpu_pct"],
+        "cpu": {"load_pct": hb["cpu_pct"], "temp_c": hb["cpu_temp_c"]},
+        "gpus": hb["gpus"],
+        "processes": hb["processes"],
+        "repos": hb["repos"],
+    })
     return {"status": "accepted", "machine": machine}
 
 

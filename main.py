@@ -141,6 +141,16 @@ async def ws_pane(websocket: WebSocket, machine: str, pane_id: str):
     await hub.handle_browser_terminal(websocket, machine, pane_id=pane_id)
 
 
+@app.websocket("/ws/viewer")
+async def ws_viewer(websocket: WebSocket):
+    """Read-only telemetry feed for Teas — snapshot on connect, then push.
+
+    Must stay registered ahead of the /ws/{token} catch-all below, which would
+    otherwise swallow it and hand the socket to the Faire hub.
+    """
+    await hub.handle_viewer(websocket)
+
+
 @app.websocket("/ws/{token}")
 async def ws_faire(websocket: WebSocket, token: str):
     """Faire desktop client — broadcast hub for project/decision events."""
