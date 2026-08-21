@@ -63,6 +63,74 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import RedirectResponse
 
 
+import ipaddress
+import secrets
+
+# Cloudflare's published edge ranges (www.cloudflare.com/ips-v4 + ips-v6),
+# snapshotted 2026-08-21. Refresh if Cloudflare publishes new ranges — a stale
+# list fails closed (legitimate traffic 403s), never open.
+CLOUDFLARE_IP_RANGES = (
+    "173.245.48.0/20",
+    "103.21.244.0/22",
+    "103.22.200.0/22",
+    "103.31.4.0/22",
+    "141.101.64.0/18",
+    "108.162.192.0/18",
+    "190.93.240.0/20",
+    "188.114.96.0/20",
+    "197.234.240.0/22",
+    "198.41.128.0/17",
+    "162.158.0.0/15",
+    "104.16.0.0/13",
+    "104.24.0.0/14",
+    "172.64.0.0/13",
+    "131.0.72.0/22",
+    "2400:cb00::/32",
+    "2606:4700::/32",
+    "2803:f800::/32",
+    "2405:b500::/32",
+    "2405:8100::/32",
+    "2a06:98c0::/29",
+    "2c0f:f248::/32",
+)
+
+_CF_NETS = tuple(ipaddress.ip_network(r) for r in CLOUDFLARE_IP_RANGES)
+
+
+def _via_cloudflare(request) -> bool:
+    """True if this request actually traversed Cloudflare.
+
+    Checks the peer address, NOT a header. The Host header and Cf-* headers are
+    all attacker-controlled when someone connects straight to the Fly origin —
+    which is exactly how Access got bypassed on 2026-08-21: a request carrying
+    `Host: rialu.ie` sent directly to the Fly IP satisfied the old hostname
+    check and was served in full. Fly sets Fly-Client-IP to the real peer.
+    """
+    raw = request.headers.get("fly-client-ip") or (
+        request.client.host if request.client else "")
+    try:
+        ip = ipaddress.ip_address(raw)
+    except ValueError:
+        return False          # unparseable — fail closed
+    return any(ip in net for net in _CF_NETS)
+
+
+def _has_valid_bearer(request) -> bool:
+    """True if the request carries a correct Bearer token.
+
+    Mirrors auth.py's verify_faire_token comparison. Returns False when no
+    token is configured — in that case the caller has proved nothing, so the
+    Cloudflare check must decide.
+    """
+    expected = os.environ.get("FAIRE_WS_TOKEN", "")
+    if not expected:
+        return False
+    header = request.headers.get("authorization", "")
+    if not header.startswith("Bearer "):
+        return False
+    return secrets.compare_digest(header[7:], expected)
+
+
 class CanonicalHostMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         host = request.headers.get("host", "")
@@ -87,6 +155,23 @@ class CanonicalHostMiddleware(BaseHTTPMiddleware):
         # Faire, agents, and browsers all go through CF with appropriate auth
         if host and "rialu.ie" not in host:
             return JSONResponse({"detail": "Use rialu.ie"}, status_code=421)
+
+        # ...and must genuinely have passed through Cloudflare. The hostname
+        # check above proves nothing on its own: Host is set by the caller, so
+        # a direct request to the Fly origin carrying `Host: rialu.ie` cleared
+        # it and got the full app, bypassing Access entirely. Verify the peer.
+        #
+        # A valid Bearer token is authentication in its own right, so it is
+        # allowed to reach the origin directly — the guard exists to stop
+        # UNauthenticated access, not to force everything through Cloudflare.
+        # scripts/divergence_selfcall.py depends on this: the weekly scheduled
+        # machine POSTs to the public Fly edge (it cannot run in-process — the
+        # data volume is single-attach) and never traverses Cloudflare.
+        if not _via_cloudflare(request) and not _has_valid_bearer(request):
+            return JSONResponse(
+                {"detail": "Direct origin access is not permitted; use rialu.ie"},
+                status_code=403,
+            )
 
         return await call_next(request)
 

@@ -438,12 +438,51 @@ class AgentHub:
 
     async def handle_browser_terminal(self, ws: WebSocket, machine: str,
                                        pane_id: Optional[str] = None):
-        """Handle a browser terminal WebSocket — bridge to agent."""
+        """Handle a browser terminal WebSocket — bridge to agent.
+
+        SECURITY: this route hands out a live shell on the named machine. It
+        used to have no authentication of its own, relying entirely on
+        Cloudflare Access sitting in front of rialu.ie. That assumption broke
+        on 2026-08-21: the DNS record was not proxied, so Access was out of the
+        request path and the socket served an unauthenticated root shell to the
+        public internet. Even with Access restored, the Fly origin IPs stay
+        publicly reachable and bypass it entirely.
+
+        So the socket now authenticates itself, with the same HMAC handshake
+        the agent and viewer sockets use. An attacker reaching the origin
+        directly cannot forge it without RIALU_AGENT_KEY. Never reintroduce a
+        dependency on an upstream proxy for this route.
+        """
         if machine not in self.agents:
             await ws.close(code=4004, reason=f"Machine '{machine}' not connected")
             return
 
+        # Cloudflare Access injects a SIGNED JWT on the upgrade request, which
+        # a browser cannot set itself and a direct-to-origin caller cannot
+        # forge. That is what lets the SPA open a terminal without shipping a
+        # shared secret to the page. Checked BEFORE accept() so an
+        # unauthenticated caller never reaches the handshake.
+        import cf_access
+        who = cf_access.identity(ws.headers)
+
         await ws.accept()
+
+        if not who:
+            # No verified Access identity — fall back to the HMAC handshake
+            # used by the agent socket, for clients that hold RIALU_AGENT_KEY.
+            try:
+                raw = await asyncio.wait_for(ws.receive_text(), timeout=10)
+                auth = json.loads(raw)
+            except (asyncio.TimeoutError, json.JSONDecodeError):
+                await ws.close(code=4001, reason="Auth timeout or invalid JSON")
+                return
+            if not self._verify_agent_auth(auth):
+                log.warning("Terminal auth failed for machine=%s", machine)
+                await ws.close(code=4003, reason="Auth failed")
+                return
+            who = auth.get("machine", "hmac-client")
+
+        log.info("Terminal authorised for %s on machine=%s", who, machine)
         channel = str(uuid.uuid4())
         self.browser_channels[channel] = ws
         self.channel_machines[channel] = machine
