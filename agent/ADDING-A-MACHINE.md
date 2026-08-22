@@ -85,6 +85,15 @@ name and the project list.**
 over `~/.rialu-agent.json`, so tailor the config **after** running it (or do the
 manual steps above). The script is machine-agnostic.
 
+## Fleet members
+
+| Machine | Repos at | Notes |
+|---|---|---|
+| Daisy | `/home/Projects` | |
+| Iris | `/home/Projects` | single GPU (RTX 5090) |
+| Lily | `/home/Projects` | **two dissimilar GPUs** (RTX 5080 + 5070 Ti) — the reason `gpus` is a list everywhere |
+| Lava | `/home/todd/dev` | **Todd's laptop — intermittent by design.** A stale "last seen" card is normal, not a fault. Do not Remove it. |
+
 ## Lava vs Rose — the only differences
 
 | | Lava | Rose |
