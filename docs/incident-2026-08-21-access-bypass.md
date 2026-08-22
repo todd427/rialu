@@ -73,7 +73,12 @@ returned a live prompt:
 account, not a sandbox. Readable with one `cat`:
 
 - `~/.ssh/id_ed25519`
-- `~/.fly/config.yml` — Fly API token (deploy/destroy on every app)
+- `~/.fly/config.yml` — Fly session token. Decoding it later showed a
+  macaroon with a third-party caveat and a **630-second validity window**,
+  i.e. a `fly auth login` session that re-discharges every ~10 minutes, not
+  a standing key. It was initially assessed as a long-lived full-power
+  token; that was wrong. Still worth re-establishing, but a stolen copy
+  stops working in minutes.
 - `~/.config/gh/hosts.yml` — GitHub PAT
 - `/home/Projects/Keys/` (324K)
 - 32 `.env` files under `/home/Projects`
@@ -140,12 +145,24 @@ be an inconvenience rather than an incident.
 
 ## Outstanding
 
-- [ ] **Rotate credentials.** Nothing rotated yet. Order: Fly API token (it can
-      destroy every app, including these fixes) → `RIALU_AGENT_KEY` (now one of
-      the two credentials guarding the terminal socket; must change on Daisy,
-      Iris, Lava *and* Fly secrets together) → GitHub PAT → SSH key →
-      `/home/Projects/Keys/` → the 32 `.env` files.
-- [ ] **Update the agents.** Daisy, Iris and Lava still run pre-fix code.
+- [x] **`FLY_API_TOKEN` rotated** (22 Aug). Replaced with a **read-only** org
+      token expiring Aug 2027 — `poller.py` only ever reads, so the previous
+      full-power token was over-privileged. Note: the first rotation attempt
+      used an unguarded `$(...)`; `fly tokens create org` failed for want of an
+      org slug, and the empty result blanked the secret and broke Fly polling
+      for a few minutes. Guard command substitutions that feed a secret.
+- [x] **Agents updated** (22 Aug) — Daisy, Iris and Lily pulled and restarted;
+      all three now report per-die telemetry. Lava is Todd's laptop and picks
+      it up whenever it next reconnects.
+- [ ] **Remaining credential rotation.** The Fly *session* token via
+      `fly auth login` + revoke at fly.io/user/personal_access_tokens (logging
+      out does not revoke server-side). Then `RIALU_AGENT_KEY` — now one of the
+      two credentials guarding the terminal socket, so it must change on every
+      machine *and* in Fly secrets together — then GitHub PAT, SSH key,
+      `/home/Projects/Keys/`, the 32 `.env` files.
+- [ ] Two Fly tokens with **Expires: Never** (`Org deploy token`, which has no
+      identified consumer, and `flyer-foxxelabs-org-20260402`, in active use by
+      `fly-mcp-foxxelabs` — replace before revoking). Hygiene, not incident.
 - [ ] Cloudflare Audit Log (Manage Account → Audit Log, `rialu.ie` zone, 18 Aug
       22:00–23:00) to name the exact action. Not required for remediation.
 
