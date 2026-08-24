@@ -653,8 +653,65 @@ def detect_claude_sessions(tmux_sessions: list) -> list:
                     "claude_state": claude_state,
                     "last_lines": lines[-10:] if lines else [],
                     "waiting_prompt": waiting_prompt,
+                    "source": "tmux",
+                    "controllable": True,
                 })
     return claude_sessions
+
+
+def detect_claude_processes() -> list:
+    """Find Claude Code instances running OUTSIDE tmux (ordinary terminals).
+
+    detect_claude_sessions only sees tmux panes, so a `claude` started in a
+    normal terminal tab is invisible. Here we scan processes for it and report
+    each by its working directory (→ project). A process with TMUX in its
+    environment is inside tmux and skipped, so nothing is double-counted.
+
+    These have no tmux pane, so they are view-only: no mirror, no send-keys,
+    and no waiting-state detection (we can't capture their terminal). They are
+    reported for visibility (controllable=False).
+    """
+    out = []
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            cmdline = proc.info.get("cmdline") or []
+            if not cmdline:
+                continue
+            exe0 = os.path.basename(cmdline[0])
+            name = proc.info.get("name") or ""
+            is_claude = (
+                exe0 == "claude" or name == "claude"
+                or (exe0 in ("node", "bun")
+                    and any(os.path.basename(a) == "claude" for a in cmdline))
+            )
+            if not is_claude:
+                continue
+            # Inside tmux? The tmux scan already covers it.
+            try:
+                if "TMUX" in (proc.environ() or {}):
+                    continue
+            except (psutil.AccessDenied, psutil.Error):
+                pass
+            cwd = ""
+            try:
+                cwd = proc.cwd()
+            except (psutil.AccessDenied, psutil.Error):
+                pass
+            out.append({
+                "pane_id": None,
+                "session": os.path.basename(cwd) if cwd else "claude",
+                "pid": proc.info.get("pid"),
+                "cwd": cwd,
+                "is_claude": True,
+                "claude_state": "running",
+                "waiting_prompt": None,
+                "last_lines": [],
+                "source": "process",
+                "controllable": False,
+            })
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return out
 
 
 # ── Terminal (pty) management ────────────────────────────────────────────────
@@ -905,8 +962,8 @@ async def tmux_monitor_loop(ws):
                 "sessions": sessions,
             }))
 
-            # Claude Code detection
-            claude_sessions = detect_claude_sessions(sessions)
+            # Claude Code detection: tmux panes + standalone terminal processes.
+            claude_sessions = detect_claude_sessions(sessions) + detect_claude_processes()
             if claude_sessions:
                 await ws.send(json.dumps({
                     "type": "claude_status",
