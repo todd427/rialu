@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><title>rialú term</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+<style>
+html,body{margin:0;height:100%;background:#0b0f14;overflow:hidden}
+#term{position:absolute;inset:0;padding:4px}#term .xterm{height:100%}
+#bar{position:absolute;left:0;right:0;bottom:0;font:10px monospace;color:#546880;background:#0d1018;padding:2px 8px;display:none}
+#bar.on{display:block}#bar a{color:#5baee8;cursor:pointer}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+</head><body>
+<div id="term"></div>
+<div id="bar"><span id="bar-msg"></span> <a onclick="connect()">reconnect</a></div>
+<script>
+const q = new URLSearchParams(location.search);
+const machine = q.get('machine'), pane = q.get('pane');
+document.title = machine ? (pane ? `${machine}:${pane}` : machine) : 'rialú term';
+const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host
+  + (pane ? `/ws/pane/${machine}/${pane}` : `/ws/terminal/${machine}`);
+
+const term = new Terminal({fontSize:13, fontFamily:'monospace', theme:{background:'#0b0f14'}, cursorBlink:true});
+const fit = new FitAddon.FitAddon();
+term.loadAddon(fit); term.open(document.getElementById('term')); fit.fit();
+
+let ws = null;
+function status(msg){
+  const b = document.getElementById('bar');
+  if (msg){ document.getElementById('bar-msg').textContent = msg; b.classList.add('on'); } else b.classList.remove('on');
+  fit.fit();
+}
+function connect(){
+  if (!machine) return;
+  if (ws && ws.readyState <= WebSocket.OPEN) return;
+  status(null);
+  ws = new WebSocket(wsUrl);
+  ws.onopen = () => { fit.fit(); ws.send(JSON.stringify({type:'resize', cols:term.cols, rows:term.rows})); term.focus(); };
+  ws.onmessage = evt => {
+    const d = JSON.parse(evt.data);
+    if (d.type === 'terminal_data' || d.type === 'pane_data') term.write(d.data);
+    else if (d.type === 'terminal_closed') { term.write('\r\n\x1b[31m[Session ended]\x1b[0m\r\n'); status('session ended'); }
+  };
+  ws.onclose = () => { term.write('\r\n\x1b[33m[Disconnected]\x1b[0m\r\n'); status('disconnected'); };
+}
+if (!pane) term.onData(d => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'data', data:d})); });
+term.onResize(({cols,rows}) => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'resize', cols, rows})); });
+window.addEventListener('resize', () => fit.fit());
+window.addEventListener('beforeunload', () => ws?.close());
+if (machine) connect();
+else { term.write('\x1b[31mNo machine specified.\x1b[0m\r\n\r\nOpen this page from the Rialu Machines tab.\r\n'); }
+</script></body></html>

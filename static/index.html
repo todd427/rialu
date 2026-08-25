@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rialú</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-height:100vh}
@@ -159,17 +158,6 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
 .tmux-pane:last-child{border-bottom:none}
 .tmux-pane-id{font-family:monospace;color:var(--acc3);font-size:10px;min-width:80px}
 .tmux-pane-cmd{color:var(--t2);flex:1}
-/* terminal overlay */
-.term-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:100;display:none;flex-direction:column}
-.term-overlay.on{display:flex}
-.term-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:var(--hdr);border-bottom:0.5px solid var(--bd)}
-.term-tabs{display:flex;gap:4px;flex:1;overflow-x:auto}
-.term-tab{padding:5px 12px;font-size:11px;color:var(--t2);cursor:pointer;border-radius:4px;white-space:nowrap;display:flex;align-items:center;gap:6px}
-.term-tab.on{background:var(--acc2);color:var(--acc3)}
-.term-tab-close{font-size:9px;color:var(--t3);cursor:pointer}
-.term-tab-close:hover{color:var(--err)}
-.term-body{flex:1;padding:4px;overflow:hidden}
-.term-body .xterm{height:100%}
 .pcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
 .pcard{background:var(--bg2);border:0.5px solid var(--bd);border-radius:8px;padding:14px;cursor:pointer;transition:border-color .15s}
 .pcard:hover{border-color:var(--acc)}
@@ -420,15 +408,6 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
       <tbody id="repo-tbody"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody>
     </table>
   </div>
-</div>
-
-<!-- TERMINAL OVERLAY -->
-<div class="term-overlay" id="term-overlay">
-  <div class="term-hdr">
-    <div class="term-tabs" id="term-tabs"></div>
-    <button class="btn" onclick="closeAllTerminals()">Close all</button>
-  </div>
-  <div class="term-body" id="term-body"></div>
 </div>
 
 <!-- DEPLOYMENTS -->
@@ -2090,160 +2069,30 @@ async function loadTmuxSessions(machines){
     </div>`).join('');
 }
 
-// ── terminal management (xterm.js) ────────────────────────────────────────
-let terminalInstances = {};  // id -> {term, ws, fitAddon}
-let activeTerminalId = null;
-let xtermLoaded = false;
+// ── terminal windows ──────────────────────────────────────────────────────
+// Each terminal is its own OS-level browser window (window.open), not an
+// in-SPA overlay tab. window.open MUST run synchronously inside the click —
+// term.html loads its own terminal library, so there is no async gap for
+// a popup blocker to trip on.
+const termWindows = {};  // key -> Window; pane keys dedupe, shell keys are unique
 
-function loadXtermJS(cb){
-  if (xtermLoaded) return cb();
-  const s1 = document.createElement('script');
-  s1.src = 'https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js';
-  s1.onload = () => {
-    const s2 = document.createElement('script');
-    s2.src = 'https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js';
-    s2.onload = () => { xtermLoaded = true; cb(); };
-    document.head.appendChild(s2);
-  };
-  document.head.appendChild(s1);
-}
-
-function wsBase(){
-  const loc = window.location;
-  return (loc.protocol === 'https:' ? 'wss://' : 'ws://') + loc.host;
+function openTermWindow(machine, paneId){
+  const key = paneId ? `${machine}:${paneId}` : `${machine}:shell:${Date.now()}`;
+  const w0 = termWindows[key];
+  if (w0 && !w0.closed){ w0.focus(); return; }
+  const url = `/static/term.html?machine=${encodeURIComponent(machine)}` + (paneId ? `&pane=${encodeURIComponent(paneId)}` : '');
+  const w = window.open(url, 'rialu-' + key.replace(/[^\w-]/g,'_'), 'popup,width=1000,height=640');
+  if (!w){ alert('Popup blocked — allow popups for rialu.ie'); return; }
+  termWindows[key] = w;
 }
 
 function openNewTerminal(){
-  // Pick first connected machine
   const cards = document.querySelectorAll('.m-card:not(.offline) .m-name');
   if (!cards.length){ alert('No machines online'); return; }
-  const machine = cards[0].textContent;
-  openTerminalFor(machine);
+  openTermWindow(cards[0].textContent);
 }
-
-function openTerminalFor(machine){
-  loadXtermJS(() => {
-    const id = 'term-' + Date.now();
-    createTerminal(id, machine, `${wsBase()}/ws/terminal/${machine}`, machine);
-  });
-}
-
-function openPaneTerminal(machine, paneId){
-  loadXtermJS(() => {
-    const id = 'pane-' + Date.now();
-    const label = machine + ':' + paneId;
-    createTerminal(id, label, `${wsBase()}/ws/pane/${machine}/${paneId}`, machine, paneId);
-  });
-}
-
-function createTerminal(id, label, wsUrl, machine, paneId){
-  const overlay = document.getElementById('term-overlay');
-  overlay.classList.add('on');
-
-  // Create terminal
-  const term = new Terminal({
-    fontSize: 13,
-    fontFamily: 'monospace',
-    theme: { background: '#0b0f14' },
-    cursorBlink: true,
-  });
-  const fitAddon = new FitAddon.FitAddon();
-  term.loadAddon(fitAddon);
-
-  // Create container
-  const container = document.createElement('div');
-  container.id = id;
-  container.style.cssText = 'width:100%;height:100%;display:none';
-  document.getElementById('term-body').appendChild(container);
-
-  term.open(container);
-
-  // Connect WebSocket
-  const ws = new WebSocket(wsUrl);
-  ws.onopen = () => {
-    fitAddon.fit();
-    ws.send(JSON.stringify({type:'resize', cols:term.cols, rows:term.rows}));
-  };
-  ws.onmessage = (evt) => {
-    const data = JSON.parse(evt.data);
-    if (data.type === 'terminal_data' || data.type === 'pane_data') {
-      term.write(data.data);
-    } else if (data.type === 'terminal_closed') {
-      term.write('\r\n\x1b[31m[Session ended]\x1b[0m\r\n');
-    }
-  };
-  ws.onclose = () => {
-    term.write('\r\n\x1b[33m[Disconnected]\x1b[0m\r\n');
-  };
-
-  // Send input (only for shell terminals, not pane streams)
-  if (!paneId) {
-    term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({type:'data', data:data}));
-      }
-    });
-  }
-
-  // Handle resize
-  term.onResize(({cols, rows}) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({type:'resize', cols, rows}));
-    }
-  });
-
-  window.addEventListener('resize', () => fitAddon.fit());
-
-  terminalInstances[id] = {term, ws, fitAddon, label, container};
-  switchTerminal(id);
-  renderTermTabs();
-}
-
-function switchTerminal(id){
-  // Hide all, show target
-  Object.entries(terminalInstances).forEach(([tid, t]) => {
-    t.container.style.display = tid === id ? 'block' : 'none';
-  });
-  activeTerminalId = id;
-  renderTermTabs();
-  const t = terminalInstances[id];
-  if (t) {
-    setTimeout(() => { t.fitAddon.fit(); t.term.focus(); }, 50);
-  }
-}
-
-function renderTermTabs(){
-  const el = document.getElementById('term-tabs');
-  el.innerHTML = Object.entries(terminalInstances).map(([id, t]) =>
-    `<div class="term-tab${id === activeTerminalId ? ' on' : ''}" onclick="switchTerminal('${id}')">
-      ${esc(t.label)}
-      <span class="term-tab-close" onclick="event.stopPropagation();closeTerminal('${id}')">×</span>
-    </div>`
-  ).join('');
-}
-
-function closeTerminal(id){
-  const t = terminalInstances[id];
-  if (t) {
-    t.ws.close();
-    t.term.dispose();
-    t.container.remove();
-    delete terminalInstances[id];
-  }
-  if (activeTerminalId === id) {
-    const remaining = Object.keys(terminalInstances);
-    if (remaining.length) switchTerminal(remaining[0]);
-    else closeAllTerminals();
-  } else {
-    renderTermTabs();
-  }
-}
-
-function closeAllTerminals(){
-  Object.keys(terminalInstances).forEach(closeTerminal);
-  document.getElementById('term-overlay').classList.remove('on');
-  activeTerminalId = null;
-}
+function openTerminalFor(machine){ openTermWindow(machine); }
+function openPaneTerminal(machine, paneId){ openTermWindow(machine, paneId); }
 
 // ── utils ──────────────────────────────────────────────────────────────────
 function esc(s){ const d = document.createElement('div'); d.textContent = s||''; return d.innerHTML; }
