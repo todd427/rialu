@@ -170,6 +170,10 @@ async def agent_heartbeat(request: Request):
     from ws_hub import hub
     await hub.broadcast_to_viewers({
         "type": "heartbeat",
+        # Both spellings: `machine` is what the agent sends and what the viewer
+        # socket promises Teas; `machine_name` is the DB-and-Faire spelling that
+        # the WebSocket path also carries. Keep the two paths identical.
+        "machine": machine,
         "machine_name": machine,
         "cpu_pct": hb["cpu_pct"],
         "ram_pct": hb["ram_pct"],

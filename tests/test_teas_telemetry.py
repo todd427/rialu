@@ -284,3 +284,30 @@ def test_hottest_die_spans_cpu_and_gpus(agent):
     assert agent.hottest_die_c(51.0, [{"temp_c": 83.0}, {"temp_c": 60.0}]) == 83.0
     assert agent.hottest_die_c(None, [{"temp_c": 60.0}]) == 60.0
     assert agent.hottest_die_c(None, []) is None
+
+
+def test_viewer_socket_names_the_machine_the_way_teas_reads_it():
+    """Both viewer message types carry `machine`, not only `machine_name`.
+
+    Teas's Heartbeat model mirrors the brief's payload spec, where the field is
+    `machine` — the agent sends it under that name. The hub renames it to
+    `machine_name` for the DB row and for Faire, and the viewer socket was
+    handing Teas that internal spelling: every message failed to deserialise and
+    all five widgets stayed blank. `machine_name` stays for Faire; `machine` is
+    what the viewer socket promises.
+    """
+    _post({"machine": "rose", "cpu": {"load_pct": 12.0, "temp_c": None},
+           "ram_pct": 30.0, "gpus": []})
+    with client.websocket_connect("/ws/viewer") as ws:
+        ws.send_json(_viewer_auth())
+
+        snap = ws.receive_json()
+        rose = next(m for m in snap["machines"] if m["machine"] == "rose")
+        assert rose["gpus"] == []
+        assert rose["cpu"]["temp_c"] is None
+
+        _post({"machine": "lava", "cpu": {"load_pct": 88.0, "temp_c": None},
+               "ram_pct": 61.0, "gpus": []})
+        beat = ws.receive_json()
+        assert beat["type"] == "heartbeat"
+        assert beat["machine"] == "lava"

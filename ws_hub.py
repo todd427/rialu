@@ -217,7 +217,14 @@ class AgentHub:
 
         # Fan out to viewers FIRST. A viewer socket that waits on SQLite has
         # thrown away the latency the adaptive heartbeat interval bought.
-        await self.broadcast_to_viewers({"type": "heartbeat", **payload})
+        #
+        # `machine` is added for the viewer socket only. The agent sends `machine`
+        # and the brief's payload spec uses it; `machine_name` is this hub's
+        # DB-and-Faire spelling, and Faire reads it off the broadcast below, so the
+        # shared payload keeps it. Teas parses `machine` and ignores the rest.
+        await self.broadcast_to_viewers(
+            {"type": "heartbeat", "machine": machine, **payload}
+        )
 
         with db() as conn:
             conn.execute(
@@ -384,7 +391,14 @@ class AgentHub:
         heartbeat — up to 30s of blank gauges on an idle fleet.
         """
         from routers.machines import list_machines
-        return {"type": "snapshot", "machines": list_machines()}
+        # Same shape as the heartbeat fan-out above: the viewer socket speaks
+        # `machine` throughout, so Teas has one parser rather than one per message
+        # type. list_machines() itself is untouched — /api/machines is what Faire
+        # and the Rialu SPA render, and both key on `machine_name`.
+        return {
+            "type": "snapshot",
+            "machines": [{**m, "machine": m["machine_name"]} for m in list_machines()],
+        }
 
     async def handle_viewer(self, ws: WebSocket):
         """Handle a read-only viewer WebSocket (Teas).
