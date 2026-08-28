@@ -26,7 +26,7 @@ def _verify_agent_sig(body: bytes, sig: Optional[str]) -> bool:
     if not sig:
         return False
     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-    # Accept both "sha256=<hex>" (cc_wrapper) and raw "<hex>" (legacy)
+    # Accept both "sha256=<hex>" (prefixed) and raw "<hex>" (legacy) signatures
     clean_sig = sig.removeprefix("sha256=")
     return hmac.compare_digest(expected, clean_sig)
 
