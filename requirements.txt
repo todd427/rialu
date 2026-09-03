@@ -7,10 +7,8 @@ psutil>=5.9.0
 websockets>=12.0
 cryptography>=42.0
 PyJWT>=2.8      # verify Cloudflare Access JWTs at the origin (cf_access.py)
-# PRD 0001 Step 0 — both names bounded, together.
-# Unbounded, `fastmcp>=2.0.0` resolves to fastmcp 4.0.2, which pulls
-# mcp 2.1.1 transitively; there `mcp.server.fastmcp` is a stub that raises
-# ModuleNotFoundError on import. Bounding fastmcp alone would not be enough,
-# so mcp is pinned here too even though rialu never imports it directly.
-fastmcp>=2.0.0,<3
-mcp<2
+# The fleet's single SDK pin lives in foxxe-mcp (PRD G1). The [fastmcp]
+# extra bounds BOTH names together, which is what rialu needs: unbounded,
+# `fastmcp>=2.0.0` resolves to fastmcp 4.0.2 and pulls mcp 2.1.1
+# transitively, where mcp.server.fastmcp is a stub that raises on import.
+foxxe-mcp[fastmcp] @ git+https://github.com/todd427/foxxe-mcp@v0.1.0
