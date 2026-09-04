@@ -11,4 +11,4 @@ PyJWT>=2.8      # verify Cloudflare Access JWTs at the origin (cf_access.py)
 # extra bounds BOTH names together, which is what rialu needs: unbounded,
 # `fastmcp>=2.0.0` resolves to fastmcp 4.0.2 and pulls mcp 2.1.1
 # transitively, where mcp.server.fastmcp is a stub that raises on import.
-foxxe-mcp[fastmcp] @ git+https://github.com/todd427/foxxe-mcp@v0.1.0
+foxxe-mcp[fastmcp]==0.3.0
