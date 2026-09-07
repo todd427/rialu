@@ -53,7 +53,7 @@ from urllib.parse import urlparse
 from typing import Literal, Optional
 
 from pydantic import AnyHttpUrl
-from mcp.server.fastmcp import FastMCP
+from foxxe_mcp import MCPServer, mounted_app
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
 from mcp.server.auth.provider import (
     OAuthAuthorizationServerProvider,
@@ -63,7 +63,6 @@ from mcp.server.auth.provider import (
     RefreshToken,
     construct_redirect_uri,
 )
-from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from db import db, row_to_dict
@@ -312,7 +311,7 @@ class RialuOAuthProvider(OAuthAuthorizationServerProvider):
 
 _oauth_provider = RialuOAuthProvider(state_file=_OAUTH_STATE)
 
-mcp = FastMCP(
+mcp = MCPServer(
     name="Rialú",
     instructions=(
         "Rialú is Todd's personal DevOps command centre. Use these tools to "
@@ -329,12 +328,6 @@ mcp = FastMCP(
         ),
         required_scopes=["mcp"],
     ),
-    # See module docstring for why this is disabled. Security is handled at the
-    # OAuth + Cloudflare layers, not at the SDK's DNS-rebinding-protection layer.
-    transport_security=TransportSecuritySettings(
-        enable_dns_rebinding_protection=False,
-    ),
-    stateless_http=True,
 )
 
 
@@ -495,5 +488,16 @@ def get_project(project_id: int) -> dict:
 # ── ASGI app ─────────────────────────────────────────────────────────────────
 
 def get_asgi_app():
-    """Return the MCP ASGI app for mounting in main.py."""
-    return mcp.streamable_http_app()
+    """Return the MCP ASGI app for mounting in main.py.
+
+    mounted_app() carries the Mount("/") path-strip fix, and supplies the
+    DNS-rebinding setting this module used to build by hand: foxxe-mcp
+    >=0.5.0 leaves that protection OFF by default, for exactly the reason
+    the module docstring gives. rialu reached that conclusion before the
+    library did — ainm's 2026-09-04 outage is what forced it in fleet-wide.
+
+    stateless_http and the transport-security settings move here from the
+    constructor: 1.x reads them off settings at construction, 2.x takes them
+    as streamable_http_app() kwargs, and absorbing that split is the point.
+    """
+    return mounted_app(mcp, path="/mcp", stateless_http=True)

@@ -143,6 +143,14 @@ class CanonicalHostMiddleware(BaseHTTPMiddleware):
         if path == "/api/health":
             return await call_next(request)
 
+        # /version — the fleet drift instrument (PRD 0001 G4). Allowed on
+        # the origin so `foxxe-herd status` can read this server like the
+        # rest of the fleet; it discloses {server, foxxe_mcp, sdk} and
+        # nothing else. Same trade Todd made for taisce on 2026-09-07, and
+        # a cheaper one here — this is the dashboard, not the vault.
+        if path == "/version":
+            return await call_next(request)
+
         # WebSocket — token-authenticated at application layer (faire_hub validates FAIRE_WS_TOKEN)
         if path.startswith("/ws/"):
             return await call_next(request)
@@ -255,6 +263,14 @@ async def ws_faire(websocket: WebSocket, token: str):
 @app.get("/api/health")
 def health():
     return {"status": "ok", "app": "rialu"}
+
+
+@app.get("/version")
+def version():
+    """{server, foxxe_mcp, sdk} — PRD 0001 G4, so fleet drift is a query."""
+    from foxxe_mcp import version_payload
+
+    return version_payload("rialu")
 
 
 @app.post("/api/test-broadcast")

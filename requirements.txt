@@ -7,8 +7,17 @@ psutil>=5.9.0
 websockets>=12.0
 cryptography>=42.0
 PyJWT>=2.8      # verify Cloudflare Access JWTs at the origin (cf_access.py)
-# The fleet's single SDK pin lives in foxxe-mcp (PRD G1). The [fastmcp]
-# extra bounds BOTH names together, which is what rialu needs: unbounded,
-# `fastmcp>=2.0.0` resolves to fastmcp 4.0.2 and pulls mcp 2.1.1
-# transitively, where mcp.server.fastmcp is a stub that raises on import.
-foxxe-mcp[fastmcp]==0.3.0
+# The fleet's single SDK pin lives in foxxe-mcp (PRD G1).
+#
+# The [fastmcp] extra is DROPPED, not merely bumped. It was taken because
+# unbounded `fastmcp>=2.0.0` resolves to fastmcp 4.x and drags mcp 2.1.1 in
+# transitively, where mcp.server.fastmcp is a stub that raises on import — a
+# real hazard, but the extra treats the symptom. rialu does not import the
+# standalone `fastmcp` anywhere (`mcp.server.fastmcp` is a different thing),
+# so the package has no reason to be installed at all, and a package that is
+# not installed cannot drag anything in. foxxe-mcp bounds `mcp` directly.
+#
+# This is also the first build that applies any of it: the running image had
+# NO foxxe-mcp installed, on mcp 1.29.1 with fastmcp 3.4.7 — the dependency
+# commits were never redeployed, exactly as fleet.toml warned.
+foxxe-mcp==0.5.0
