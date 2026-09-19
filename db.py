@@ -387,6 +387,25 @@ MIGRATIONS = [
     # nothing. The scalar gpu_pct column stays for Faire's back-compat.
     "ALTER TABLE machine_heartbeats ADD COLUMN cpu_temp_c REAL",
     "ALTER TABLE machine_heartbeats ADD COLUMN gpus_json TEXT",
+    # 027 — fleet-wide outstanding-briefs scan (docs/cc-brief-outstanding-briefs.md).
+    # One row per brief file found in a registered repo. The scanner does a full
+    # replace per repo (delete, then insert), so a brief deleted from its repo
+    # disappears on the next scan rather than lingering as a ghost. status is the
+    # §2 vocabulary or 'unknown' — never guessed. age_days is measured from the
+    # file's last commit date, not mtime, and is the standup's only sort key.
+    """
+    CREATE TABLE IF NOT EXISTS briefs (
+        repo        TEXT NOT NULL,        -- GitHub owner/name
+        path        TEXT NOT NULL,
+        title       TEXT,
+        status      TEXT NOT NULL,        -- not-started|ready|in-progress|parked|done|unknown
+        authored    TEXT,                 -- the **Authored:** line, verbatim, if present
+        age_days    INTEGER NOT NULL,
+        last_commit TEXT,
+        scanned_at  TEXT NOT NULL,
+        PRIMARY KEY (repo, path)
+    )
+    """,
 ]
 
 

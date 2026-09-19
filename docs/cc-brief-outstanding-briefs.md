@@ -1,7 +1,7 @@
 # Outstanding briefs scan — CC brief
 
 **For:** a Rialú Claude Code session.
-**Status:** not-started
+**Status:** done
 **Authored:** 17 Sep 2026
 **Pairs with:** `timire/briefs/standup-outstanding-briefs.md` (the display side)
 

@@ -67,6 +67,7 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from db import db, row_to_dict
 from routers.divergence import commits_since_narrative, narrative_changed
+from routers.briefs import STATUSES as BRIEF_STATUSES, list_briefs
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
@@ -483,6 +484,31 @@ def get_project(project_id: int) -> dict:
     if not row:
         return {"error": f"Project {project_id} not found"}
     return row_to_dict(row)
+
+
+# ── Briefs ───────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def briefs(status: str = "open", limit: int = 10) -> dict:
+    """Outstanding briefs and PRDs across every registered repo, oldest first.
+
+    Rialú scans each repo's docs/ and briefs/ for `**Status:**` lines
+    (vocabulary: not-started, ready, in-progress, parked, done; anything else
+    is `unknown`, never guessed). This is the read side of that scan.
+
+    Args:
+        status: "open" (default: not-started, ready, in-progress, unknown),
+                "all", or one exact status value.
+        limit:  rows to return, 1–50. `count_open` and `by_status` always
+                describe the whole set, so "and N more" is one subtraction.
+
+    Rows are six short fields (repo, path, title, status, age_days,
+    last_commit, plus `authored` when the file states it), so the list stays
+    well inside the truncation budget that motivated list_projects' lean shape.
+    """
+    if status not in ("open", "all", "unknown") + BRIEF_STATUSES:
+        return {"error": f"unknown status filter {status!r}"}
+    return list_briefs(status=status, limit=limit)
 
 
 # ── ASGI app ─────────────────────────────────────────────────────────────────

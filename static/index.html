@@ -206,6 +206,7 @@ body{background:#0b0f14;font-family:system-ui,-apple-system,sans-serif;min-heigh
 <!-- PROJECTS -->
 <div id="projects" class="panel on">
   <div class="mcards" id="divergence-strip" style="display:none;margin-bottom:10px"></div>
+  <div class="mcard" id="briefs-panel" style="display:none;margin-bottom:10px"></div>
   <div class="row">
     <div style="display:flex;align-items:center;gap:9px">
       <div class="vtog">
@@ -666,6 +667,30 @@ function toggleHealthFilter(flag){
   renderDivergenceStrip();  // refresh active-card highlight
   filterProjects();
 }
+
+// ── outstanding briefs panel (under the divergence strip) ────────────────────
+// Same data and ordering as GET /api/briefs and the briefs() MCP tool: oldest
+// first, top ten, count of the rest. No colouring by age — age is the sort key.
+async function loadBriefs(){
+  const el = document.getElementById('briefs-panel');
+  if (!el) return;
+  let d = null;
+  try { d = await fetch('/api/briefs?status=open&limit=10').then(r => r.json()); } catch(e){}
+  if (!d || !d.count_open){ el.style.display = 'none'; return; }
+  const rest = d.count_open - d.shown.length;
+  const rows = d.shown.map(b => {
+    const repo = (b.repo || '').split('/').pop();
+    const title = esc(b.title || b.path);
+    return `<div style="display:flex;gap:8px;align-items:baseline;font-size:11px;padding:2px 0">
+      <span style="color:var(--t3);min-width:34px;text-align:right">${b.age_days}d</span>
+      <span style="color:var(--t2);min-width:70px">${esc(repo)}</span>
+      <span style="color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(b.path)}">${title}</span>
+      <span style="color:var(--t3)">${esc(b.status)}</span>
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div class="mclabel">Outstanding briefs · ${d.count_open} open${rest > 0 ? ` · ${rest} more` : ''}</div>${rows}`;
+  el.style.display = 'block';
+}
 const RUNTIME_ICON = { running: ['●','var(--ok)'], sleeping: ['◑','var(--warn)'], stopped: ['■','var(--err)'], deploying: ['↻','var(--acc)'], error: ['✕','var(--err)'] };
 function runtimeBadge(r){ if (!r) return ''; const [icon,color] = RUNTIME_ICON[r]||['?','var(--t3)']; return `<span style="font-size:9px;color:${color}" title="${r}">${icon} ${r}</span>`; }
 
@@ -717,6 +742,7 @@ async function loadProjects(){
     }
     populateProjectDropdown(projects);
     loadDivergence();
+    loadBriefs();
   } catch(e){
     document.getElementById('pv-list').innerHTML = '<div class="empty">Could not load projects.</div>';
   }

@@ -48,6 +48,7 @@ cli/rialu divergence-run [--window-days N]
 - `deployments.py` — Cached deploy status from Fly.io and Railway pollers
 - `budget.py` — Platform costs (EUR) + API registry + billing refresh + cost-by-project
 - `usage.py` — Anthropic token usage (CSV import from console.anthropic.com)
+- `briefs.py` — Fleet-wide outstanding-briefs scan: every registered GitHub repo's `docs/*prd*.md`, `docs/cc-brief-*.md`, `docs/*-handoff.md`, `briefs/*.md` is read for a `**Status:**` line (vocabulary: `not-started | ready | in-progress | parked | done`; anything else is `unknown`, never guessed). `GET /api/briefs?status=open&limit=5` and the `briefs()` MCP tool share one projection, oldest first, capped at 50. Scanned by the 6h `poll_briefs` job over the GitHub REST API (Rialú never clones) and on demand via `POST /api/briefs/scan`; a repo that fails to read keeps its previous rows. Timire renders the standup line. See `docs/cc-brief-outstanding-briefs.md`
 - `spend.py` — Suim spend-rollup receiver: `POST /api/spend` upserts per-project Claude spend on `rollup_key` (idempotent, accepts unknown/NULL slugs); `GET /api/spend/summary` exposes recent $/hr vs `projects.cost_limit_hr` (`over_budget` flag — Rialú computes the breach, services enforce). Stored in `project_spend`. Complements (not replaces) `usage.py`. See `docs/suim-spend-rollup-receiver-prd.md`
 - `sentinel.py` — Threat intelligence dashboard (proxies Sentinel API + recent events)
 - `mcp_status.py` — Health checker for all 4 MCP connectors
@@ -71,6 +72,7 @@ cli/rialu divergence-run [--window-days N]
 - Fly.io billing (1hr) — cost estimation per app
 - GitHub LOC (6hr) — commit stats per project
 - GitHub repos (6hr) — cache all user repos, detect untracked
+- Briefs scan (6hr) — read every registered repo's briefs/PRDs for their `**Status:**` line into `briefs` (see `routers/briefs.py`)
 - Project status sync (2min) — promotes status based on deploys/commits/milestones (never demotes), updates `runtime` field from deploy cache
 
 The divergence digest is **not** an APScheduler job — it's triggered externally (`scripts/divergence_selfcall.py` POSTs `/api/divergence/run`) so it can run on a weekly cron independent of the app process.
@@ -78,6 +80,10 @@ The divergence digest is **not** an APScheduler job — it's triggered externall
 **Frontend:** Single-file vanilla JS SPA (`static/index.html`). Tabs: Projects (cards/list/kanban/timeline views), Work log, Machines, Deployments, Sentinel, Budget & APIs, Mnemos, MCP. 4 themes (dark/light/slate/terminal). Chart.js 4.x from CDN for commit activity graphs. Also serves as backend for Faire (Tauri desktop client) via WebSocket + REST.
 
 **Database:** SQLite WAL mode, foreign keys enforced. Schema managed via idempotent migrations array in `db.py`. Connection via `with db() as conn:` context manager with auto-commit/rollback.
+
+## Briefs — closing rule
+
+When a session implements a brief or PRD from `docs/`, it flips that file's `**Status:**` line to `done` **in the same commit as the implementation**. That line is what the fleet-wide briefs scan reads (`/api/briefs`, `briefs()` MCP tool, Timire's standup); a brief left at `not-started` after it ships is reported as outstanding forever. Vocabulary: `not-started | ready | in-progress | parked | done`.
 
 ## Key Patterns
 

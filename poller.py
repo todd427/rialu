@@ -491,6 +491,19 @@ async def poll_github_repos() -> None:
 
 # ── auto status transitions ──────────────────────────────────────────────────
 
+async def poll_briefs() -> None:
+    """
+    Rescan every registered repo for briefs/PRDs and their Status: lines
+    (docs/cc-brief-outstanding-briefs.md). Same cadence and token as the other
+    GitHub polls; GITHUB_PAT missing → skipped inside run_briefs_scan.
+    """
+    try:
+        from routers.briefs import run_briefs_scan
+        await run_briefs_scan()
+    except Exception as exc:
+        log.warning(f"[briefs] poll failed: {exc}")
+
+
 async def sync_project_status() -> None:
     """
     Auto-transition project status and runtime based on deploy state, commits,
@@ -597,6 +610,7 @@ def setup_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(poll_fly_billing, "interval", seconds=3600, id="fly_billing", replace_existing=True)
     scheduler.add_job(poll_github_loc,  "interval", seconds=21600, id="github_loc", replace_existing=True)
     scheduler.add_job(poll_github_repos,"interval", seconds=21600, id="github_repos", replace_existing=True)
+    scheduler.add_job(poll_briefs,      "interval", seconds=21600, id="briefs",      replace_existing=True)
     scheduler.add_job(sync_project_status, "interval", seconds=120, id="status_sync", replace_existing=True)
     return scheduler
 
