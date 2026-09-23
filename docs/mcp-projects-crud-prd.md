@@ -3,7 +3,7 @@
 **Project:** Rialú
 **File:** `mcp_server.py`
 **Branch:** `main`
-**Status:** Ready for implementation
+**Status:** done
 
 ---
 

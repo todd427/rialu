@@ -2,7 +2,7 @@
 
 **For:** a Rialú Claude Code session.
 **From:** Suim (Rialú project id 57). Authored 20 Jun 2026.
-**Status:** Not started. The Suim side is built, tested, and *gated off* waiting for this endpoint.
+**Status:** done
 
 ---
 

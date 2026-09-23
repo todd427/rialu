@@ -1,6 +1,7 @@
 # Rialú — Secrets Wizard — Handoff Context
 
 **For Claude Code — read this before touching anything.**
+**Status:** done (shipped, then extracted to Taisce 2026-06-03 and removed from Rialú)
 
 ---
 

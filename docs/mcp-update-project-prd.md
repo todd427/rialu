@@ -3,7 +3,7 @@
 **Repo:** todd427/rialu  
 **File:** `mcp_server.py`  
 **Date:** 2026-03-27  
-**Status:** Ready for implementation
+**Status:** done
 
 ---
 

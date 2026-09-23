@@ -4,6 +4,7 @@
 **Severity:** low — UX; no data or security impact
 **Origin:** Todd, chat session 2026-08-25
 **Component:** `static/index.html` (Machines tab terminal management) → new `static/term.html`
+**Status:** done
 
 ---
 

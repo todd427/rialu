@@ -2,6 +2,7 @@
 
 **Author:** Claude (Faire session) | **Date:** 2026-03-25 | **Priority:** High
 **Relates to:** Faire desktop app (`todd427/faire`), Rialú API (`todd427/rialu`)
+**Status:** done
 
 ---
 

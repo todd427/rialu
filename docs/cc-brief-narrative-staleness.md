@@ -3,7 +3,7 @@
 **Project:** Rialú
 **Date:** 29 July 2026
 **Requested by:** a session that read four stale `phase`/`notes` fields as current state and got four project assessments wrong
-**Status:** Ready for implementation
+**Status:** done
 **Extends:** `divergence-digest-prd.md` — does **not** replace or duplicate it
 
 ---

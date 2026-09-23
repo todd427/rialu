@@ -3,7 +3,7 @@
 **Project:** Rialú
 **Date:** 20 August 2026
 **Requested by:** the Teas design session — three viewer surfaces designed against a heartbeat that cannot feed them
-**Status:** Implemented 21 Aug 2026 — see `tests/test_teas_telemetry.py` (19 tests)
+**Status:** done
 **Consumer:** `teas` — Tauri desktop viewer (separate repo, not built yet)
 
 ---

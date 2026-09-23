@@ -1,6 +1,7 @@
 # Rialú Phase 3 — Handoff Context
 
 **For Claude Code — read this before touching anything.**
+**Status:** done
 
 ---
 

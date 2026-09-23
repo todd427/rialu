@@ -1,6 +1,7 @@
 # Rialú Phase 2 — Agent Handoff Context
 
 **For Claude Code — read this before touching anything.**
+**Status:** done
 
 ---
 

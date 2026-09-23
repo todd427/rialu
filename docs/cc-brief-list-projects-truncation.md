@@ -4,6 +4,7 @@
 **Severity:** medium — silently corrupts every programmatic read of the registry
 **Origin:** FoxxeLabs full-corpus audit, 2026-07-15 (`foxxelabs-config/docs/audit/2026-07-corpus-audit.md`, Task 1)
 **Component:** `mcp_server.py` → `list_projects` tool
+**Status:** done
 
 ---
 
