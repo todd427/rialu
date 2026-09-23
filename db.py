@@ -406,6 +406,32 @@ MIGRATIONS = [
         PRIMARY KEY (repo, path)
     )
     """,
+    # 028 — Rian lifecycle sync (docs/rian-lifecycle-sync-prd.md).
+    # created_at is the *registration* date and the register only began in March
+    # 2026, so it cannot answer "what did we start this year". Rian computes a
+    # first/last mention per project from the chat exports and POSTs them here;
+    # GitHub repo created_at is the fallback for anything that never appeared in
+    # chat. Both raw dates are kept alongside the derived started_at, so when the
+    # two sources disagree the disagreement stays visible instead of being
+    # resolved by deletion.
+    "ALTER TABLE projects ADD COLUMN first_seen TEXT",
+    "ALTER TABLE projects ADD COLUMN last_seen TEXT",
+    "ALTER TABLE projects ADD COLUMN started_at TEXT",
+    # started_at_source: 'rian' | 'github' | 'manual' | NULL
+    "ALTER TABLE projects ADD COLUMN started_at_source TEXT",
+    # One row per received batch, payload verbatim, so a bad run can be seen and
+    # reverted without asking Rian to re-derive what it sent.
+    """
+    CREATE TABLE IF NOT EXISTS lifecycle_runs (
+        id          INTEGER PRIMARY KEY,
+        source      TEXT NOT NULL,
+        run_at      TEXT NOT NULL,
+        received_at TEXT NOT NULL DEFAULT (datetime('now')),
+        matched     INTEGER NOT NULL,
+        unmatched   INTEGER NOT NULL,
+        payload     TEXT NOT NULL
+    )
+    """,
 ]
 
 

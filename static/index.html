@@ -694,6 +694,17 @@ async function loadBriefs(){
 const RUNTIME_ICON = { running: ['●','var(--ok)'], sleeping: ['◑','var(--warn)'], stopped: ['■','var(--err)'], deploying: ['↻','var(--acc)'], error: ['✕','var(--err)'] };
 function runtimeBadge(r){ if (!r) return ''; const [icon,color] = RUNTIME_ICON[r]||['?','var(--t3)']; return `<span style="font-size:9px;color:${color}" title="${r}">${icon} ${r}</span>`; }
 
+// started_at is when the project BEGAN (Rian's first mention in chat, else the
+// GitHub repo date) — not created_at, which is only when it was registered here.
+// The glyph names the source so a disagreement between the two is visible.
+const START_GLYPH = { rian: ['◈','Rian — first mention in chat'], github: ['⌥','GitHub — repo created'], manual: ['✎','set by hand'] };
+function startedBadge(p){
+  if (!p.started_at) return '';
+  const [glyph, label] = START_GLYPH[p.started_at_source] || ['·', p.started_at_source || 'unknown source'];
+  const year = String(p.started_at).slice(0, 4);
+  return `<span style="color:var(--t3)" title="started ${esc(String(p.started_at).slice(0,10))} · ${esc(label)}">${glyph} ${esc(year)}</span>`;
+}
+
 function timeSince(iso){
   if (!iso) return '';
   let s = iso.replace(' ','T');
@@ -811,6 +822,7 @@ function _cardHtml(p){
         ${p.machine ? `<span>${hlesc(p.machine)}</span>` : ''}
         ${p.constellation ? `<span style="color:var(--pur)">${hlesc(p.constellation)}</span>` : ''}
         <span>${timeSince(p.updated_at)}</span>
+        ${startedBadge(p)}
       </div>
       ${p.notes && _searchQuery && p.notes.toLowerCase().includes(_searchQuery) ? `<div style="margin-top:4px;font-size:10px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${hlesc(p.notes.substring(0,120))}</div>` : ''}
       ${_searchQuery && p._milestones && p._milestones.some(m => m.title.toLowerCase().includes(_searchQuery)) ? `<div style="margin-top:4px;font-size:10px;color:var(--t3)">milestone: ${hlesc(p._milestones.find(m => m.title.toLowerCase().includes(_searchQuery)).title)}</div>` : ''}

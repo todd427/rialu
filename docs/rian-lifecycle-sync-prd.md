@@ -2,7 +2,7 @@
 
 **For:** a Rialú Claude Code session.
 **From:** the 2026-09-17 project census. Authored 17 Sep 2026.
-**Status:** Not started. Rian side is a small follow-on (§7), not yet written.
+**Status:** done (Rialú side; the Rian `sync-rialu` client of §7 is still to be written)
 
 ---
 

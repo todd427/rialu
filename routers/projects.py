@@ -55,6 +55,9 @@ class ProjectIn(BaseModel):
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
+    # Set started_at by hand and it is tagged 'manual', which both lifecycle
+    # syncs treat as authoritative and never overwrite (lifecycle PRD §4).
+    started_at: Optional[str] = None
     phase: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None
@@ -185,6 +188,17 @@ def create_project(p: ProjectIn):
     return result
 
 
+@router.get("/census")
+def census(year: Optional[int] = None):
+    """
+    Projects started in `year` (derived started_at), their status breakdown, and
+    how many are in production. Declared before /{project_id} deliberately: that
+    route takes an int, so "census" would 422 against it if this came second.
+    """
+    from routers.lifecycle import run_census
+    return run_census(year)
+
+
 @router.get("/{project_id}")
 def get_project(project_id: int):
     with db() as conn:
@@ -214,6 +228,8 @@ def update_project(project_id: int, p: ProjectUpdate):
         # is merely present, and never on an unrelated field change.
         if narrative_changed(conn, project_id, fields):
             set_clause += ", narrative_written_at = datetime('now')"
+        if "started_at" in fields:
+            set_clause += ", started_at_source = 'manual'"
         conn.execute(
             f"UPDATE projects SET {set_clause} WHERE id = ?", values
         )

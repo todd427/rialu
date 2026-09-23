@@ -68,6 +68,7 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from db import db, row_to_dict
 from routers.divergence import commits_since_narrative, narrative_changed
 from routers.briefs import STATUSES as BRIEF_STATUSES, list_briefs
+from routers.lifecycle import run_census
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
@@ -355,10 +356,17 @@ def list_projects() -> list[dict]:
     high number means the record reads as current but the code has moved on, so
     open the repo rather than trusting the phase string. One int per row — no
     material cost to the truncation budget that motivated the lean projection.
+
+    ``started_at`` is when the project actually began — Rian's first mention in
+    chat, else the GitHub repo date, with ``started_at_source`` saying which (or
+    ``manual``). It is NOT ``created_at``, which is merely when the row was
+    registered and reads 2026 for everything backfilled in March. Two short
+    strings per row; ``first_seen``/``last_seen`` stay in the full record.
     """
     with db() as conn:
         rows = conn.execute(
-            "SELECT id, name, slug, phase, status, platform, repo_url, site_url, machine, updated_at "
+            "SELECT id, name, slug, phase, status, platform, repo_url, site_url, machine, "
+            "updated_at, started_at, started_at_source "
             "FROM projects ORDER BY updated_at DESC"
         ).fetchall()
         narrative_counts = commits_since_narrative(conn)
@@ -509,6 +517,25 @@ def briefs(status: str = "open", limit: int = 10) -> dict:
     if status not in ("open", "all", "unknown") + BRIEF_STATUSES:
         return {"error": f"unknown status filter {status!r}"}
     return list_briefs(status=status, limit=limit)
+
+
+@mcp.tool()
+def project_census(year: int | None = None) -> dict:
+    """How many projects were started in a year, and how many are in production.
+
+    ``started`` counts projects by their derived ``started_at`` (Rian's first
+    mention in chat, else the GitHub repo creation date) — never ``created_at``,
+    which is only when the project was registered here and says 2026 for every
+    row backfilled when the register began in March 2026.
+
+    ``no_start_date`` is reported separately and never folded into ``started``:
+    a project Rian has not matched and GitHub cannot date is unknown, not new.
+    ``in_production`` counts status in deployed/live/running/shipped.
+
+    Args:
+        year: e.g. 2026. Omit for the whole portfolio.
+    """
+    return run_census(year)
 
 
 # ── ASGI app ─────────────────────────────────────────────────────────────────
