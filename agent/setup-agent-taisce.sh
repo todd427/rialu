@@ -94,7 +94,10 @@ else
 fi
 
 # ── venv + deps ───────────────────────────────────────────────────────────────
-if [[ ! -d "$HOME/agentEnv" ]]; then
+# Judge by pip, not the directory: a venv made before python3-venv was installed has
+# bin/python and no pip, and reusing it fails at the install line (tulip, 2026-10-22).
+if [[ ! -x "$HOME/agentEnv/bin/pip" ]]; then
+  rm -rf "$HOME/agentEnv"
   python3 -m venv "$HOME/agentEnv"
 fi
 "$HOME/agentEnv/bin/pip" install -q -r "$AGENT_DIR/requirements.txt"
