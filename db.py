@@ -432,6 +432,9 @@ MIGRATIONS = [
         payload     TEXT NOT NULL
     )
     """,
+    # 029 — 1-minute load average on the heartbeat (docs/cc-brief-teas-load-1m.md).
+    # Nullable: NULL means "platform has none / old agent", never 0.0.
+    "ALTER TABLE machine_heartbeats ADD COLUMN load_1m REAL",
 ]
 
 

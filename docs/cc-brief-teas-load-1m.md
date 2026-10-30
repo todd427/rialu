@@ -1,6 +1,6 @@
 # Brief — `load_1m` on the heartbeat
 
-**Status:** ready (viewer side done in d01e6eb; needs rialu-agent + hub)
+**Status:** done
 
 Teas's `--list` shows each machine's 1-minute load average after its dies:
 

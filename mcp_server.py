@@ -538,6 +538,29 @@ def project_census(year: int | None = None) -> dict:
     return run_census(year)
 
 
+# ── Machines ─────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def machine_loads() -> list[dict]:
+    """1-minute load average per machine, from each one's latest heartbeat.
+
+    ``load_1m`` is a run-queue count (what ``uptime`` reports), not a percent,
+    and is null where the agent is old or the platform has none — unknown, not
+    zero. ``received_at`` is when that heartbeat arrived (UTC); a stale value is
+    normal for Lava, which is a laptop and intermittent by design.
+    """
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT machine_name, load_1m, received_at FROM machine_heartbeats "
+            "ORDER BY machine_name"
+        ).fetchall()
+    return [
+        {"machine": r["machine_name"], "load_1m": r["load_1m"],
+         "received_at": r["received_at"]}
+        for r in rows
+    ]
+
+
 # ── ASGI app ─────────────────────────────────────────────────────────────────
 
 def get_asgi_app():

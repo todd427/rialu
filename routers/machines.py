@@ -93,6 +93,8 @@ def normalise_heartbeat(data: dict) -> dict:
         # New shape wins where present; fall back to the flat legacy field.
         "cpu_pct": cpu.get("load_pct", data.get("cpu_pct")),
         "ram_pct": data.get("ram_pct"),
+        # Run-queue count, not a percent. Absent (old agent) stays None.
+        "load_1m": data.get("load_1m"),
         "gpu_pct": gpu_pct,
         "cpu_temp_c": cpu.get("temp_c"),
         "gpus": gpus,
@@ -151,8 +153,8 @@ async def agent_heartbeat(request: Request):
         conn.execute(
             """INSERT INTO machine_heartbeats
                (machine_name, cpu_pct, ram_pct, gpu_pct, cpu_temp_c,
-                processes_json, repos_json, gpus_json, received_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                processes_json, repos_json, gpus_json, load_1m, received_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (
                 machine,
                 hb["cpu_pct"],
@@ -162,6 +164,7 @@ async def agent_heartbeat(request: Request):
                 json.dumps(hb["processes"]),
                 json.dumps(hb["repos"]),
                 json.dumps(hb["gpus"]),
+                hb["load_1m"],
             ),
         )
 
@@ -177,6 +180,7 @@ async def agent_heartbeat(request: Request):
         "machine_name": machine,
         "cpu_pct": hb["cpu_pct"],
         "ram_pct": hb["ram_pct"],
+        "load_1m": hb["load_1m"],
         "gpu_pct": hb["gpu_pct"],
         "cpu": {"load_pct": hb["cpu_pct"], "temp_c": hb["cpu_temp_c"]},
         "gpus": hb["gpus"],

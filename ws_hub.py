@@ -207,6 +207,7 @@ class AgentHub:
             # Legacy scalars — load-bearing for Faire's .mcard.
             "cpu_pct": hb["cpu_pct"],
             "ram_pct": hb["ram_pct"],
+            "load_1m": hb["load_1m"],
             "gpu_pct": hb["gpu_pct"],
             # New per-die shape for Teas.
             "cpu": {"load_pct": hb["cpu_pct"], "temp_c": hb["cpu_temp_c"]},
@@ -234,8 +235,8 @@ class AgentHub:
             conn.execute(
                 """INSERT INTO machine_heartbeats
                    (machine_name, cpu_pct, ram_pct, gpu_pct, cpu_temp_c,
-                    processes_json, repos_json, gpus_json, received_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    processes_json, repos_json, gpus_json, load_1m, received_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
                 (
                     machine,
                     hb["cpu_pct"],
@@ -245,6 +246,7 @@ class AgentHub:
                     json.dumps(hb["processes"]),
                     json.dumps(hb["repos"]),
                     json.dumps(hb["gpus"]),
+                    hb["load_1m"],
                 ),
             )
         # Broadcast to Faire desktop clients

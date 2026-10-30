@@ -311,3 +311,30 @@ def test_viewer_socket_names_the_machine_the_way_teas_reads_it():
         beat = ws.receive_json()
         assert beat["type"] == "heartbeat"
         assert beat["machine"] == "lava"
+
+
+# ── load_1m ──────────────────────────────────────────────────────────────────
+
+def test_load_1m_round_trips():
+    _post({"machine": "lily", "cpu": {"load_pct": 1.0, "temp_c": 40.0},
+           "ram_pct": 10.0, "load_1m": 3.23, "gpus": []})
+    assert _machine("lily")["load_1m"] == 3.23
+
+
+def test_load_1m_absent_is_null_not_zero():
+    """An old agent sends no load_1m; that must read as unknown, never 0.0."""
+    _post({"machine": "rose", "cpu": {"load_pct": 1.0, "temp_c": None},
+           "ram_pct": 10.0, "gpus": []})
+    assert _machine("rose")["load_1m"] is None
+
+
+def test_machine_loads_mcp_tool():
+    from mcp_server import machine_loads
+    _post({"machine": "lily", "cpu": {"load_pct": 1.0, "temp_c": 40.0},
+           "ram_pct": 10.0, "load_1m": 3.23, "gpus": []})
+    _post({"machine": "rose", "cpu": {"load_pct": 1.0, "temp_c": None},
+           "ram_pct": 10.0, "gpus": []})
+    by_name = {m["machine"]: m for m in machine_loads()}
+    assert by_name["lily"]["load_1m"] == 3.23
+    assert by_name["rose"]["load_1m"] is None
+    assert by_name["lily"]["received_at"]

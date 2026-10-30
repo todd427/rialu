@@ -187,6 +187,17 @@ def get_ram_pct() -> float:
     return psutil.virtual_memory().percent
 
 
+def get_load_1m():
+    """1-minute load average (run-queue count, not a percent), or None.
+
+    None where the platform has no loadavg; never 0.0 for "unknown".
+    """
+    try:
+        return os.getloadavg()[0]
+    except (OSError, AttributeError):
+        return None
+
+
 # Sensor labels that denote the package/aggregate CPU temperature, best first.
 # k10temp/Tctl on the AMD boxes, coretemp/Package id 0 on Intel.
 _CPU_TEMP_LABELS = ("Tctl", "Package id 0", "Tdie", "CPU")
@@ -928,6 +939,7 @@ async def heartbeat_loop(ws):
                 # Legacy scalars — load-bearing for Faire, keep emitting.
                 "cpu_pct": cpu_load,
                 "ram_pct": get_ram_pct(),
+                "load_1m": get_load_1m(),
                 "gpu_pct": gpu_pct_from(gpus),
                 "processes": get_filtered_processes(),
                 "repos": scan_repos(),
